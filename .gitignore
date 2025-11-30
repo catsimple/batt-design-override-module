@@ -1,0 +1,43 @@
+# Root level build artifacts
+dist/
+build/
+.gradle/
+extra_modules/v*/
+
+# Kernel module build artifacts
+**/*.o
+**/*.ko
+**/*.mod.c
+**/*.mod.o
+**/*.mod
+**/modules.order
+**/Module.symvers
+**/.*.cmd
+
+# Android/Gradle build artifacts (covering subprojects)
+**/build/
+**/.gradle/
+**/*.apk
+**/*.aab
+**/*.zip
+local.properties
+
+# Keystores and Secrets
+*.jks
+*.keystore
+
+# Logs
+*.log
+
+# IDE and System files
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+*.swp
+*~
+
+# Specific generated files
+packaging/magisk-batt-design-override/common/battcaplsp.apk
+lsposed-module/modules/
