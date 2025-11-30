@@ -433,6 +433,13 @@ static int show_ret_handler(struct kretprobe_instance *ri, struct pt_regs *regs)
     const char *name = NULL;
     const char *attr;
     int v;
+    /* 
+     * CRITICAL: This runs in kprobe context (atomic/interrupt context).
+     * We CANNOT sleep, so we CANNOT take mutex_lock(&g_lock).
+     * We read g_targets without lock. Since they are simple integers,
+     * tearing is rare and acceptable for display purposes.
+     */
+
     if (!args || !args->dev || !args->da || !args->buf)
         return 0;
     attr = args->da->attr.name;
@@ -444,7 +451,7 @@ static int show_ret_handler(struct kretprobe_instance *ri, struct pt_regs *regs)
         /* nothing */
     }
 
-    mutex_lock(&g_lock);
+    // mutex_lock(&g_lock); // REMOVED to prevent panic
     if (name && !strcmp(name, target_batt)) {
         if (!strcmp(attr, "voltage_max") && g_targets.voltage_max_uv > 0) {
             v = scnprintf(args->buf, PAGE_SIZE, "%d\n", g_targets.voltage_max_uv);
@@ -471,7 +478,7 @@ static int show_ret_handler(struct kretprobe_instance *ri, struct pt_regs *regs)
 #endif
         }
     }
-    mutex_unlock(&g_lock);
+    // mutex_unlock(&g_lock); // REMOVED
     return 0;
 }
 
@@ -525,7 +532,7 @@ static int __init chg_override_init(void)
         return ret;
     }
 
-    /* 注册 pd_verifed_show 覆盖 */
+    /* 注册 pd_verifed_show 覆盖（可选，仅高通平台有效） */
     memset(&pd_show_kretprobe, 0, sizeof(pd_show_kretprobe));
     pd_show_kretprobe.handler = pd_show_ret;
     pd_show_kretprobe.entry_handler = pd_show_entry;
@@ -534,10 +541,10 @@ static int __init chg_override_init(void)
     pd_show_kretprobe.kp.symbol_name = "pd_verifed_show";
     ret = register_kretprobe(&pd_show_kretprobe);
     if (ret) {
-        unregister_kretprobe(&ps_show_kretprobe);
-        remove_proc_entry("chg_param_override", NULL);
-        pr_err("chg_param_override: register pd_show kretprobe failed %d\n", ret);
-        return ret;
+        /* 非致命错误：如果找不到符号，仅禁用 PD 覆盖功能 */
+        pr_warn("chg_param_override: pd_verifed_show symbol not found or hook failed (%d), PD override disabled\n", ret);
+    } else {
+        pr_info("chg_param_override: pd_verifed_show hooked\n");
     }
 
     /* 初始化监控定时器 */
