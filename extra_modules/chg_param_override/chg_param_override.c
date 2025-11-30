@@ -297,9 +297,9 @@ static int parse_kv(const char *key, const char *val)
     } else if (!strcmp(key, "pd_verifed_disable")) {
         g_targets.pd_verifed_enabled = false;
     } else if (!strcmp(key, "batt")) {
-        strlcpy(target_batt, val, sizeof(target_batt));
+        strscpy(target_batt, val, sizeof(target_batt));
     } else if (!strcmp(key, "usb")) {
-        strlcpy(target_usb, val, sizeof(target_usb));
+        strscpy(target_usb, val, sizeof(target_usb));
     } else {
         return -EINVAL;
     }
