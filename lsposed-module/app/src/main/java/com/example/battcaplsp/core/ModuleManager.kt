@@ -95,6 +95,11 @@ class ModuleManager(
         android.util.Log.w("ModuleManager", "No suitable module file found for $moduleName")
         return@withContext null
     }
+
+    /** 检查当前模块是否可用（已安装） */
+    suspend fun isAvailable(): Boolean {
+        return findAvailableKernelModule(this.moduleName) != null
+    }
     
     /** 构建可能的文件名列表（按完全匹配优先级排序） */
     private fun buildPossibleFileNames(moduleName: String, kernelVersion: KernelVersion): List<String> {

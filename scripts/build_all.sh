@@ -245,7 +245,8 @@ if [[ "$SKIP_APP" != 1 ]]; then
   (
     cd "$WS_ROOT/lsposed-module"
     # 使用系统安装的 gradle 而不是 wrapper，避免版本兼容问题
-    gradle --no-daemon --stacktrace :app:assembleRelease -x lint
+    # 显式清除代理设置，避免因本地代理未开启导致连接被拒绝
+    gradle -Dhttp.proxyHost= -Dhttps.proxyHost= --no-daemon --stacktrace :app:assembleRelease -x lint
   )
   [[ -f "$APP_APK" ]] || die "App 构建失败，未找到: $APP_APK"
   

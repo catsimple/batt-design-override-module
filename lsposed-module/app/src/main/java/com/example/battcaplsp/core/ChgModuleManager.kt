@@ -31,6 +31,11 @@ class ChgModuleManager(
             }
         }
     }
+
+    /** 检查模块文件是否存在（是否已安装） */
+    suspend fun isAvailable(): Boolean = withContext(Dispatchers.IO) {
+        return@withContext battMgr.findAvailableKernelModule(moduleName) != null
+    }
     
     /** 智能查找并加载充电模块 */
     suspend fun loadModuleWithSmartNaming(

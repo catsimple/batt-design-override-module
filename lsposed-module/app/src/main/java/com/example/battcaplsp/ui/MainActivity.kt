@@ -7,6 +7,7 @@ import androidx.compose.runtime.SideEffect
 import com.override.battcaplsp.LaunchTrace
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -40,6 +41,7 @@ import com.override.battcaplsp.ui.StatusBadge
 import com.override.battcaplsp.ui.stripStatusPrefix
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.async
 import com.override.battcaplsp.core.OpEvents
 import com.override.battcaplsp.BuildConfig
 
@@ -54,6 +56,7 @@ class MainActivity: ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         LaunchTrace.markActivityCreateStart()
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         LaunchTrace.markSetContentStart()
         setContent {
@@ -120,25 +123,58 @@ class MainActivity: ComponentActivity() {
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable private fun AppScaffold() {
         var tab by remember { mutableStateOf(0) }
-        // 基础 tabs
-    val baseTabs = listOf("状态", "电池", "充电", "设置")
-        // 如果开启内部 debug 面板，添加一个调试 tab
-        val tabs = if (BuildConfig.ENABLE_INTERNAL_DEBUG_PANEL) baseTabs + "调试" else baseTabs
+        
+        // 模块可用性状态 (默认为 false，检测到可用后显示)
+        var isBattAvailable by remember { mutableStateOf(false) }
+        var isChgAvailable by remember { mutableStateOf(false) }
+        
+        // 异步检查模块可用性
+        LaunchedEffect(Unit) {
+            // 并行检查
+            val batt = async { battMgr.isAvailable() }
+            val chg = async { chgMgr.isAvailable() }
+            isBattAvailable = batt.await()
+            isChgAvailable = chg.await()
+        }
+
+        // 动态构建 tabs
+        val tabs = remember(isBattAvailable, isChgAvailable) {
+            val list = mutableListOf<String>()
+            if (BuildConfig.DEBUG) {
+                list.add("状态")
+            }
+            if (isBattAvailable) list.add("电池")
+            if (isChgAvailable) list.add("充电")
+            list.add("设置")
+            if (BuildConfig.ENABLE_INTERNAL_DEBUG_PANEL) list.add("调试")
+            list
+        }
+        
+        // 确保 tab 索引有效
+        if (tab >= tabs.size) {
+            tab = 0
+        }
+
         Scaffold(topBar = {
             // 仅保留一层标题栏：移除重复标题，直接用 TabRow 作为顶栏内容
-            TabRow(selectedTabIndex = tab) {
+            TabRow(
+                selectedTabIndex = tab,
+                modifier = Modifier.statusBarsPadding()
+            ) {
                 tabs.forEachIndexed { i, t ->
                     Tab(selected = tab==i, onClick = { tab = i }, text = { Text(t) })
                 }
             }
         }) { pad ->
             Box(Modifier.padding(pad)) {
-                when (tab) {
-                    0 -> StatusScreen(moduleManager = battMgr)
-                    1 -> BatteryScreen()
-                    2 -> ChargingScreen(repo = chgRepo, mgr = chgMgr)
-                    3 -> HookSettingsScreen(repo = hookRepo)
-                    4 -> if (BuildConfig.ENABLE_INTERNAL_DEBUG_PANEL) DebugPanel(moduleManager = battMgr) else StatusScreen(moduleManager = battMgr)
+                // 根据当前选中的 tab 名称来显示内容
+                val currentTabName = tabs.getOrElse(tab) { tabs.firstOrNull() ?: "设置" }
+                when (currentTabName) {
+                    "状态" -> StatusScreen(moduleManager = battMgr)
+                    "电池" -> BatteryScreen()
+                    "充电" -> ChargingScreen(repo = chgRepo, mgr = chgMgr)
+                    "设置" -> HookSettingsScreen(repo = hookRepo)
+                    "调试" -> DebugPanel(moduleManager = battMgr)
                     else -> StatusScreen(moduleManager = battMgr)
                 }
             }

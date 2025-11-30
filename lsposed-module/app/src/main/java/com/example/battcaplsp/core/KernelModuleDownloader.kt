@@ -39,15 +39,16 @@ class KernelModuleDownloader(private val context: Context) {
 
     /**
      * 判断资产名是否匹配指定模块/内核主次版本，允许：
-     * - 带或不带 android 段（如 android13- 可选）
-     * - 补丁号（例如 5.15 或 5.15.192）
+     * - 旧格式：moduleName-(androidXX-)?kernelVersion(.patch)?.ko
+     * - 新格式：androidXX-kernelVersion(.patch)?_moduleName.ko
      */
     private fun matchesAssetName(
         assetName: String,
         moduleName: String,
         supportedKernelMajorMinor: String
     ): Boolean {
-        val pattern = Regex(
+        // Old pattern
+        val oldPattern = Regex(
             pattern = "^" +
                 Regex.escape(moduleName) +
                 "-(?:android\\d{2}-)?" +
@@ -55,15 +56,37 @@ class KernelModuleDownloader(private val context: Context) {
                 "(\\.\\d+)?" +
                 "\\.ko$"
         )
-        return pattern.matches(assetName)
+        if (oldPattern.matches(assetName)) return true
+
+        // New pattern: androidXX-kernel_module.ko
+        val newPattern = Regex(
+            pattern = "^android\\d{2}-" +
+                Regex.escape(supportedKernelMajorMinor) +
+                "(\\.\\d+)?" +
+                "_" +
+                Regex.escape(moduleName) +
+                "\\.ko$"
+        )
+        return newPattern.matches(assetName)
     }
 
     /**
-     * 从资产文件名中提取实际内核版本（最后一段减去后缀），例如
-     * batt_design_override-android13-5.15.192.ko -> 5.15.192
+     * 从资产文件名中提取实际内核版本
+     * 支持旧格式：batt_design_override-android13-5.15.192.ko -> 5.15.192
+     * 支持新格式：android13-5.15.192_batt_design_override.ko -> 5.15.192
      */
     private fun extractKernelFromAssetName(assetName: String): String? {
         if (!assetName.endsWith(".ko")) return null
+        
+        // Try new format: androidXX-kernel_module.ko
+        // Regex: ^android\d{2}-([\d.]+)_
+        val newFormatRegex = Regex("^android\\d{2}-([\\d.]+)_")
+        val match = newFormatRegex.find(assetName)
+        if (match != null) {
+            return match.groupValues[1]
+        }
+
+        // Fallback to old format
         val base = assetName.removeSuffix(".ko")
         val lastDash = base.lastIndexOf('-')
         if (lastDash == -1 || lastDash == base.lastIndex) return null
@@ -332,23 +355,37 @@ class KernelModuleDownloader(private val context: Context) {
                 return@withContext emptyList()
             }
             
-            val androidVersion = KERNEL_TO_ANDROID[supportedVersion] // 仅用于信息展示
+            val mappedAndroidVersion = KERNEL_TO_ANDROID[supportedVersion] // 仅用于信息展示和回退
+            
+            // 获取当前设备的 Android 版本 (e.g., "13" -> "android13")
+            val currentAndroidVersion = "android${android.os.Build.VERSION.RELEASE.split(".").firstOrNull() ?: ""}"
 
             // 遍历已知模块名
             MODULE_NAMES.forEach { moduleName ->
                 android.util.Log.d("KernelModuleDownloader", "Looking for file of $moduleName with kernel $supportedVersion")
 
-                // 定义查找优先级（不包含通用匹配）
-                val searchPatterns = listOf(
-                    // 1. 完全匹配：包含android版本和完整内核版本
-                    "$moduleName-${androidVersion ?: "android\\d+"}-${kernelVersion.full}\\.ko",
-                    // 2. 完全匹配：包含android版本和主次版本
-                    "$moduleName-${androidVersion ?: "android\\d+"}-${supportedVersion}\\.ko",
-                    // 3. 简化匹配：完整内核版本
-                    "$moduleName-${kernelVersion.full}\\.ko",
-                    // 4. 简化匹配：主次版本
-                    "$moduleName-${supportedVersion}\\.ko"
-                )
+                // 定义查找优先级
+                val searchPatterns = mutableListOf<String>()
+                
+                // 1. 优先匹配：当前 Android 版本 + 新命名格式
+                if (currentAndroidVersion.isNotEmpty()) {
+                    searchPatterns.add("${currentAndroidVersion}-${kernelVersion.full}_$moduleName\\.ko")
+                    searchPatterns.add("${currentAndroidVersion}-${supportedVersion}_$moduleName\\.ko")
+                }
+
+                // 2. 回退匹配：映射的 Android 版本 (默认 GKI 对应关系) + 新命名格式
+                searchPatterns.add("${mappedAndroidVersion ?: "android\\d+"}-${kernelVersion.full}_$moduleName\\.ko")
+                searchPatterns.add("${mappedAndroidVersion ?: "android\\d+"}-${supportedVersion}_$moduleName\\.ko")
+
+                // 3. 旧格式兼容
+                // 完全匹配：包含android版本和完整内核版本
+                searchPatterns.add("$moduleName-${mappedAndroidVersion ?: "android\\d+"}-${kernelVersion.full}\\.ko")
+                // 完全匹配：包含android版本和主次版本
+                searchPatterns.add("$moduleName-${mappedAndroidVersion ?: "android\\d+"}-${supportedVersion}\\.ko")
+                // 简化匹配：完整内核版本
+                searchPatterns.add("$moduleName-${kernelVersion.full}\\.ko")
+                // 简化匹配：主次版本
+                searchPatterns.add("$moduleName-${supportedVersion}\\.ko")
 
                 var matchingAsset: GitHubAsset? = null
                 var matchedPattern = ""
@@ -386,7 +423,7 @@ class KernelModuleDownloader(private val context: Context) {
                             sha256 = matchingAsset.sha256,
                             size = matchingAsset.size,
                             kernelVersion = actualKernel,
-                            androidVersion = androidVersion ?: ""
+                            androidVersion = mappedAndroidVersion ?: ""
                         )
                     )
                 } else {
@@ -532,6 +569,11 @@ class KernelModuleDownloader(private val context: Context) {
         
         // 按优先级排序的可能文件名（与下载逻辑保持一致）
         val possibleNames = listOf(
+            // New formats
+            "$androidVersion-${currentKernel}_$moduleName.ko",
+            "$androidVersion-${majorMinor}_$moduleName.ko",
+
+            // Existing formats
             // 1. 完全匹配：包含android版本和完整内核版本
             "$moduleName-$androidVersion-$currentKernel.ko",
             // 2. 完全匹配：包含android版本和主次版本  
