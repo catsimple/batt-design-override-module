@@ -1,0 +1,67 @@
+name: Build Battery Modules (DDK)
+
+on:
+  workflow_call:
+    inputs:
+      kmi:
+        description: 'KMI version'
+        required: true
+        type: string
+      ddk_release:
+        description: 'DDK release version'
+        required: false
+        default: '20251104'
+        type: string
+
+jobs:
+  build-modules:
+    name: Build modules for ${{ inputs.kmi }}
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/ylarod/ddk:${{ inputs.kmi }}-${{ inputs.ddk_release }}
+      options: --privileged
+
+    steps:
+    - name: Checkout source code
+      uses: actions/checkout@v4
+
+    - name: Build batt_design_override
+      run: |
+        cd extra_modules/batt_design_override
+        echo "=== Building batt_design_override.ko for KMI: ${{ inputs.kmi }} ==="
+        # DDK images typically have source at /ddk/source and output at /ddk/out
+        make -C /ddk/source O=/ddk/out M=$(pwd) LLVM=1 LLVM_IAS=1 modules
+        
+    - name: Build chg_param_override
+      run: |
+        cd extra_modules/chg_param_override
+        echo "=== Building chg_param_override.ko for KMI: ${{ inputs.kmi }} ==="
+        make -C /ddk/source O=/ddk/out M=$(pwd) LLVM=1 LLVM_IAS=1 modules
+
+    - name: Prepare Artifacts
+      run: |
+        mkdir -p out
+        
+        # Copy and rename artifacts
+        if [ -f extra_modules/batt_design_override/batt_design_override.ko ]; then
+          cp extra_modules/batt_design_override/batt_design_override.ko out/${{ inputs.kmi }}_batt_design_override.ko
+        fi
+        
+        if [ -f extra_modules/chg_param_override/chg_param_override.ko ]; then
+          cp extra_modules/chg_param_override/chg_param_override.ko out/${{ inputs.kmi }}_chg_param_override.ko
+        fi
+        
+        # Strip debug symbols
+        if command -v llvm-strip >/dev/null 2>&1; then
+          llvm-strip -d out/*.ko
+        else
+          echo "llvm-strip not found, skipping strip"
+        fi
+        
+        ls -la out/
+
+    - name: Upload Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: modules-${{ inputs.kmi }}
+        path: out/*.ko
