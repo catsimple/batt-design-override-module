@@ -199,8 +199,8 @@ class MagiskModuleManager(private val context: Context) {
     }
     
     /** 创建 service.sh 脚本（使用 root shell） */
-    private suspend fun createServiceScriptWithRoot(modulePath: String): Boolean {
-        val content = """
+        private suspend fun createServiceScriptWithRoot(modulePath: String): Boolean {
+                val content = """
             #!/system/bin/sh
             # 动态加载内核模块服务脚本（应用已安装版本）
             # 该脚本会从应用获取对应内核版本的 .ko 文件并加载
@@ -210,8 +210,25 @@ class MagiskModuleManager(private val context: Context) {
             CONF="${'$'}COMM_DIR/params.conf"
             FLAG_DISABLE="${'$'}MODDIR/disable_autoload"
             
-            log() { echo "[batt-design-override][dynamic] ${'$'}*"; }
-            logw() { echo "[batt-design-override][dynamic][warn] ${'$'}*"; }
+                        # 尽早读取配置以获取 VERBOSE
+                        [ -f "${'$'}CONF" ] && . "${'$'}CONF"
+                        # 根据 VERBOSE 控制是否写入文件日志
+                        LOGFILE="${'$'}MODDIR/log.txt"
+                        _log() {
+                            if [ "${'$'}{VERBOSE:-0}" = "1" ]; then
+                                echo "[batt-design-override][dynamic] ${'$'}*" | tee -a "${'$'}LOGFILE" >/dev/null
+                            else
+                                echo "[batt-design-override][dynamic] ${'$'}*"
+                            fi
+                        }
+                        log() { _log "${'$'}*"; }
+                        logw() {
+                            if [ "${'$'}{VERBOSE:-0}" = "1" ]; then
+                                echo "[batt-design-override][dynamic][warn] ${'$'}*" | tee -a "${'$'}LOGFILE" >/dev/null
+                            else
+                                echo "[batt-design-override][dynamic][warn] ${'$'}*"
+                            fi
+                        }
             
             if [ -f "${'$'}FLAG_DISABLE" ]; then
                 log "disable_autoload 存在，跳过加载"
@@ -336,10 +353,15 @@ class MagiskModuleManager(private val context: Context) {
             ARGS=${'$'}(echo "${'$'}ARGS" | sed 's/^ *//')
             
             log "加载模块: ${'$'}KO_SELECTED 参数: ${'$'}ARGS"
-            if ! insmod "${'$'}KO_SELECTED" ${'$'}ARGS 2>&1; then
-                logw "insmod 失败"
-                exit 1
-            fi
+                        if ! insmod "${'$'}KO_SELECTED" ${'$'}ARGS 2>>"${'$'}LOGFILE"; then
+                                logw "insmod 失败"
+                                # 详细错误仅在 VERBOSE 打开时写入文件
+                                if [ "${'$'}{VERBOSE:-0}" = "1" ]; then
+                                    echo "[batt-design-override][dynamic] === dmesg (last 30) ===" >> "${'$'}LOGFILE"
+                                    dmesg | tail -30 >> "${'$'}LOGFILE" 2>/dev/null || true
+                                fi
+                                exit 1
+                        fi
             
             # 可选：加载充电参数模块
             CHG_PATTERNS="android*-${'$'}{KREL}_chg_param_override.ko android*-${'$'}{MAJOR_MINOR}_chg_param_override.ko chg_param_override-android*-${'$'}{MAJOR_MINOR}.ko chg_param_override-${'$'}{MAJOR_MINOR}.ko chg_param_override.ko"
@@ -356,7 +378,7 @@ class MagiskModuleManager(private val context: Context) {
             
             if [ -n "${'$'}CHG_KO" ]; then
                 log "加载充电参数模块: ${'$'}CHG_KO"
-                insmod "${'$'}CHG_KO" 2>/dev/null || logw "充电模块加载失败"
+                insmod "${'$'}CHG_KO" 2>>"${'$'}LOGFILE" || logw "充电模块加载失败"
                 
                 # 应用充电参数
                 PROC_PATH="/proc/chg_param_override"

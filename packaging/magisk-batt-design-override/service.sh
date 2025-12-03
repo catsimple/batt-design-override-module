@@ -17,11 +17,27 @@ CONF="$COMM_DIR/params.conf"
 FLAG_DISABLE="$MODDIR/disable_autoload"
 KERNEL_LINE="" # 仅用于区分多版本 ko（可选）
 
-# Enhanced logging with file output
+# 先尝试读取配置以获取 VERBOSE（尽早决定是否写日志）
+[ -f "$CONF" ] && . "$CONF"
+# shellcheck source=/dev/null
+
+# 根据 VERBOSE 控制是否写入文件日志
 LOGFILE="$MODDIR/log.txt"
-_log() { echo "[batt-design-override][service] $*" | tee -a "$LOGFILE" >/dev/null; }
+_log() {
+  if [ "${VERBOSE:-0}" = "1" ]; then
+    echo "[batt-design-override][service] $*" | tee -a "$LOGFILE" >/dev/null
+  else
+    echo "[batt-design-override][service] $*"
+  fi
+}
 log() { _log "$*"; }
-logw() { echo "[batt-design-override][service][warn] $*" | tee -a "$LOGFILE" >/dev/null; }
+logw() {
+  if [ "${VERBOSE:-0}" = "1" ]; then
+    echo "[batt-design-override][service][warn] $*" | tee -a "$LOGFILE" >/dev/null
+  else
+    echo "[batt-design-override][service][warn] $*"
+  fi
+}
 
 # Enhanced error logging with dmesg support
 log_insmod_error() {
@@ -31,36 +47,47 @@ log_insmod_error() {
     log "insmod failed for $module_name, collecting detailed error information..."
     
     # 获取最新的dmesg信息（最近30行）
-    echo "[batt-design-override][service] === dmesg output (last 30 lines) ===" >> "$LOGFILE"
-    dmesg | tail -30 >> "$LOGFILE" 2>/dev/null || echo "dmesg not available" >> "$LOGFILE"
+    if [ "${VERBOSE:-0}" = "1" ]; then
+      echo "[batt-design-override][service] === dmesg output (last 30 lines) ===" >> "$LOGFILE"
+      dmesg | tail -30 >> "$LOGFILE" 2>/dev/null || echo "dmesg not available" >> "$LOGFILE"
+    fi
     
     # 查找与模块相关的特定错误信息
-    echo "[batt-design-override][service] === module-specific errors ===" >> "$LOGFILE"
-    dmesg | grep -i "$module_name" | tail -10 >> "$LOGFILE" 2>/dev/null || echo "no module-specific dmesg found" >> "$LOGFILE"
+    if [ "${VERBOSE:-0}" = "1" ]; then
+      echo "[batt-design-override][service] === module-specific errors ===" >> "$LOGFILE"
+      dmesg | grep -i "$module_name" | tail -10 >> "$LOGFILE" 2>/dev/null || echo "no module-specific dmesg found" >> "$LOGFILE"
+    fi
     
     # 查找一般的内核模块加载错误
-    echo "[batt-design-override][service] === general insmod/modprobe errors ===" >> "$LOGFILE"
-    dmesg | grep -E "(insmod|modprobe|module.*failed|Invalid module|Unknown symbol)" | tail -10 >> "$LOGFILE" 2>/dev/null || echo "no general module errors found" >> "$LOGFILE"
+    if [ "${VERBOSE:-0}" = "1" ]; then
+      echo "[batt-design-override][service] === general insmod/modprobe errors ===" >> "$LOGFILE"
+      dmesg | grep -E "(insmod|modprobe|module.*failed|Invalid module|Unknown symbol)" | tail -10 >> "$LOGFILE" 2>/dev/null || echo "no general module errors found" >> "$LOGFILE"
+    fi
     
     # 检查模块文件信息
-    echo "[batt-design-override][service] === module file info ===" >> "$LOGFILE"
-    ls -la "$module_path" >> "$LOGFILE" 2>/dev/null || echo "module file not found: $module_path" >> "$LOGFILE"
+    if [ "${VERBOSE:-0}" = "1" ]; then
+      echo "[batt-design-override][service] === module file info ===" >> "$LOGFILE"
+      ls -la "$module_path" >> "$LOGFILE" 2>/dev/null || echo "module file not found: $module_path" >> "$LOGFILE"
+    fi
     
     # 检查内核版本兼容性
-    echo "[batt-design-override][service] === kernel compatibility check ===" >> "$LOGFILE"
-    echo "Current kernel: $(uname -r)" >> "$LOGFILE"
-    if command -v modinfo >/dev/null 2>&1; then
+    if [ "${VERBOSE:-0}" = "1" ]; then
+      echo "[batt-design-override][service] === kernel compatibility check ===" >> "$LOGFILE"
+      echo "Current kernel: $(uname -r)" >> "$LOGFILE"
+      if command -v modinfo >/dev/null 2>&1; then
         modinfo "$module_path" 2>/dev/null | grep -E "(vermagic|depends)" >> "$LOGFILE" || echo "modinfo failed or not available" >> "$LOGFILE"
+      fi
     fi
     
     # 检查模块依赖
-    if [ -f /proc/modules ]; then
+    if [ "${VERBOSE:-0}" = "1" ]; then
+      if [ -f /proc/modules ]; then
         echo "[batt-design-override][service] === loaded modules check ===" >> "$LOGFILE"
         grep -E "(battery|power_supply|qcom)" /proc/modules >> "$LOGFILE" 2>/dev/null || echo "no related modules found in /proc/modules" >> "$LOGFILE"
+      fi
+      echo "[batt-design-override][service] === end of detailed error report ===" >> "$LOGFILE"
+      log "detailed error information collected, check $LOGFILE for full report"
     fi
-    
-    echo "[batt-design-override][service] === end of detailed error report ===" >> "$LOGFILE"
-    log "detailed error information collected, check $LOGFILE for full report"
 }
 
 if [ -f "$FLAG_DISABLE" ]; then

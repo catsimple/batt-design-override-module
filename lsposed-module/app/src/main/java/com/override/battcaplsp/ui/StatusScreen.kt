@@ -14,24 +14,44 @@ import com.override.battcaplsp.core.OpEvents
 import com.override.battcaplsp.core.RootShell
 import kotlinx.coroutines.launch
 
+object StatusStateHolder {
+    var rootStatus: String = "(查询中)"
+    var kernelVersion: String = "(查询中)"
+    var loaded: Boolean = false
+    var candidates: List<String> = emptyList()
+    var lastUpdate: Long = 0
+    
+    fun isFresh(): Boolean = System.currentTimeMillis() - lastUpdate < 30000 // 30 seconds cache
+}
+
 @Composable
 fun StatusScreen(moduleManager: ModuleManager) {
     val scope = rememberCoroutineScope()
-    var kernelVersion by remember { mutableStateOf("(查询中)") }
-    var rootStatus by remember { mutableStateOf("(查询中)") }
-    var loaded by remember { mutableStateOf(false) }
-    var candidates by remember { mutableStateOf<List<String>>(emptyList()) }
+    var kernelVersion by remember { mutableStateOf(StatusStateHolder.kernelVersion) }
+    var rootStatus by remember { mutableStateOf(StatusStateHolder.rootStatus) }
+    var loaded by remember { mutableStateOf(StatusStateHolder.loaded) }
+    var candidates by remember { mutableStateOf(StatusStateHolder.candidates) }
     var loading by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
+        if (StatusStateHolder.isFresh() && StatusStateHolder.rootStatus != "(查询中)") {
+            return@LaunchedEffect
+        }
         loading = true
         try {
-            val rs = RootShell.getRootStatus(forceRefresh = true)
+            val rs = RootShell.getRootStatus(forceRefresh = false)
             rootStatus = rs.message
             loaded = moduleManager.isLoaded()
             val kv = moduleManager.getKernelVersion()
             kernelVersion = kv.full
             candidates = moduleManager.listCandidateModuleNames()
+            
+            StatusStateHolder.rootStatus = rootStatus
+            StatusStateHolder.kernelVersion = kernelVersion
+            StatusStateHolder.loaded = loaded
+            StatusStateHolder.candidates = candidates
+            StatusStateHolder.lastUpdate = System.currentTimeMillis()
+            
             OpEvents.info("状态刷新完成")
         } catch (t: Throwable) {
             OpEvents.error("状态初始化失败: ${t.message}")
@@ -62,6 +82,7 @@ fun StatusScreen(moduleManager: ModuleManager) {
                             loading = true
                             try {
                                 candidates = moduleManager.listCandidateModuleNames()
+                                StatusStateHolder.candidates = candidates
                                 OpEvents.success("候选名刷新成功")
                             } catch (t: Throwable) {
                                 OpEvents.error("获取候选失败: ${t.message}")
@@ -82,6 +103,12 @@ fun StatusScreen(moduleManager: ModuleManager) {
                         loaded = moduleManager.isLoaded()
                         val kv = moduleManager.getKernelVersion()
                         kernelVersion = kv.full
+                        
+                        StatusStateHolder.rootStatus = rootStatus
+                        StatusStateHolder.kernelVersion = kernelVersion
+                        StatusStateHolder.loaded = loaded
+                        StatusStateHolder.lastUpdate = System.currentTimeMillis()
+                        
                         OpEvents.success("状态刷新成功")
                     } catch (t: Throwable) {
                         OpEvents.error("刷新失败: ${t.message}")

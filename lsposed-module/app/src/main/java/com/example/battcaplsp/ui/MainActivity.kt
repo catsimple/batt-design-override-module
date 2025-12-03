@@ -127,21 +127,26 @@ class MainActivity: ComponentActivity() {
         // 优化：从 SharedPreferences 读取缓存状态，避免初始闪烁
         val prefs = remember { getPreferences(android.content.Context.MODE_PRIVATE) }
         
-        // 模块可用性状态
+        // 模块可用性状态："可用" 定义为 已安装(文件存在) 或 已加载(内核已载入)
         // 电池模块默认为 true (核心功能，假设用户已安装)，避免首次进入时 Tab 闪烁
         var isBattAvailable by remember { mutableStateOf(prefs.getBoolean("cache_batt_available", true)) }
         // 充电模块默认为 false (可选功能)
         var isChgAvailable by remember { mutableStateOf(prefs.getBoolean("cache_chg_available", false)) }
         
+        // 刷新触发器
+        var refreshTrigger by remember { mutableStateOf(0) }
+        
         // 异步检查模块可用性
-        LaunchedEffect(Unit) {
-            // 并行检查
-            val batt = async { battMgr.isAvailable() }
-            val chg = async { chgMgr.isAvailable() }
-            
-            val newBatt = batt.await()
-            val newChg = chg.await()
-            
+        LaunchedEffect(refreshTrigger) {
+            // 并行检查：安装状态 + 加载状态
+            val battInstalled = async { battMgr.isAvailable() }
+            val battLoaded = async { battMgr.isLoaded() }
+            val chgInstalled = async { chgMgr.isAvailable() }
+            val chgLoaded = async { chgMgr.isLoaded() }
+
+            val newBatt = (battInstalled.await() || battLoaded.await())
+            val newChg = (chgInstalled.await() || chgLoaded.await())
+
             // 仅在状态变化时更新并保存
             if (newBatt != isBattAvailable) {
                 isBattAvailable = newBatt
@@ -189,7 +194,7 @@ class MainActivity: ComponentActivity() {
                     "状态" -> StatusScreen(moduleManager = battMgr)
                     "电池" -> BatteryScreen()
                     "充电" -> ChargingScreen(repo = chgRepo, mgr = chgMgr)
-                    "设置" -> HookSettingsScreen(repo = hookRepo)
+                    "设置" -> HookSettingsScreen(repo = hookRepo, onModuleInstalled = { refreshTrigger++ })
                     "调试" -> DebugPanel(moduleManager = battMgr)
                     else -> StatusScreen(moduleManager = battMgr)
                 }

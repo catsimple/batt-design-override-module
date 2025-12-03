@@ -34,7 +34,8 @@ class ChgModuleManager(
 
     /** 检查模块文件是否存在（是否已安装） */
     suspend fun isAvailable(): Boolean = withContext(Dispatchers.IO) {
-        return@withContext battMgr.findAvailableKernelModule(moduleName) != null
+        // 必须传入充电模块特定的搜索路径，否则默认只会搜索电池模块路径
+        return@withContext battMgr.findAvailableKernelModule(moduleName, getDefaultSearchPaths()) != null
     }
     
     /** 智能查找并加载充电模块 */

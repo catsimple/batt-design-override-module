@@ -62,7 +62,10 @@ private fun StatusLine(type: StatusType, text: String) {
 }
 
 @Composable
-fun HookSettingsScreen(repo: HookSettingsRepository) {
+fun HookSettingsScreen(
+    repo: HookSettingsRepository,
+    onModuleInstalled: () -> Unit = {}
+) {
     val scope = rememberCoroutineScope()
     val ui by repo.flow.collectAsState(initial = HookSettingsState())
     val context = LocalContext.current
@@ -211,6 +214,13 @@ fun HookSettingsScreen(repo: HookSettingsRepository) {
     var showLogDialog by remember { mutableStateOf(false) }
     var logContent by remember { mutableStateOf<String?>(null) }
     var loadingLog by remember { mutableStateOf(false) }
+
+    // VERBOSE 双向同步：从模块 params.conf 读取并提供开关，写回时仅更新 VERBOSE，其他键保持不变
+    var verboseFromConf by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        val conf = com.override.battcaplsp.core.ConfigSync.readConf(context)
+        verboseFromConf = (conf["VERBOSE"] ?: "0") == "1"
+    }
 
     // 当 ui 状态变化时，更新本地状态变量
     LaunchedEffect(ui) {
@@ -921,6 +931,9 @@ fun HookSettingsScreen(repo: HookSettingsRepository) {
             } else "已安装"
             val errTail = if (detailed.errorMessages.isNotEmpty()) " | warn:${detailed.errorMessages.first()}" else ""
             setMsg("SUCCESS:$moduleName 安装成功 ($loadPart)$errTail")
+            // 刷新本地状态并通知父级
+            loadStatus(force = true)
+            onModuleInstalled()
         } else {
             val reason = detailed.errorMessages.firstOrNull()?.take(120) ?: "未知原因"
             setMsg("ERROR:$moduleName 安装失败: $reason")
@@ -1208,6 +1221,40 @@ fun HookSettingsScreen(repo: HookSettingsRepository) {
                             Spacer(Modifier.width(8.dp))
                             Text("正在加载...")
                         }
+
+    // 页面最上方插入 VERBOSE 开关，实时双向同步到 conf
+    Column(Modifier.fillMaxWidth().padding(12.dp)) {
+        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+            Text("详细日志 VERBOSE (写入模块 conf)", style = MaterialTheme.typography.titleSmall)
+            Spacer(Modifier.width(12.dp))
+            Switch(checked = verboseFromConf, onCheckedChange = { on ->
+                verboseFromConf = on
+                scope.launch {
+                    // 读取现有 conf，保持其它键不变，仅更新 VERBOSE
+                    val conf = com.override.battcaplsp.core.ConfigSync.readConf(context)
+                    val battName = conf["BATT_NAME"] ?: "battery"
+                    val designUah = conf["DESIGN_UAH"]?.toLongOrNull() ?: 0L
+                    val designUwh = conf["DESIGN_UWH"]?.toLongOrNull() ?: 0L
+                    val modelName = conf["MODEL_NAME"] ?: ""
+                    val overrideAny = (conf["OVERRIDE_ANY"] ?: "0") == "1"
+                    val res = com.override.battcaplsp.core.ConfigSync.syncBatt(
+                        context,
+                        battName,
+                        designUah,
+                        designUwh,
+                        modelName,
+                        overrideAny,
+                        on
+                    )
+                    if (res.code == 0) {
+                        OpEvents.success("VERBOSE 已${if (on) "开启" else "关闭"}并写入 conf")
+                    } else {
+                        OpEvents.error("写入 VERBOSE 失败: ${res.err}")
+                    }
+                }
+            })
+        }
+    }
                         Spacer(Modifier.height(8.dp))
                     }
                     com.override.battcaplsp.ui.LogViewer(

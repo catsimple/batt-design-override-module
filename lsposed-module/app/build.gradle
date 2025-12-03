@@ -87,6 +87,17 @@ android {
         abortOnError false
         checkReleaseBuilds false
     }
+
+    // 自定义 APK 文件名：battcaplsp-{版本号}.apk
+    // 例如：battcaplsp-2.0.8.apk 或 battcaplsp-2.0.8-debug.apk
+    applicationVariants.all { variant ->
+        variant.outputs.all { output ->
+            def verName = variant.versionName
+            def suffix = variant.buildType.name == 'debug' ? '' : ''
+            // 版本名已在 debug 下包含 -debug 后缀，这里不再重复添加
+            outputFileName = "battcaplsp-${verName}.apk"
+        }
+    }
 }
 
 dependencies {
