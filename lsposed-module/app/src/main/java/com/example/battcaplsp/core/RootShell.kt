@@ -30,8 +30,6 @@ object RootShell {
             return@withContext cachedRootStatus!!
         }
         
-        var lastException: Throwable? = null
-        
         // 重试机制
         repeat(MAX_RETRIES) { attempt ->
             try {
@@ -48,7 +46,6 @@ object RootShell {
                     delay(RETRY_DELAY)
                 }
             } catch (t: Throwable) {
-                lastException = t
                 if (attempt < MAX_RETRIES - 1) {
                     delay(RETRY_DELAY)
                 }

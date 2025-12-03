@@ -33,15 +33,35 @@ log "检测到内核版本: $KREL (主版本: $MAJOR_MINOR)"
 ANDROID_VERSIONS="android11 android12 android13 android14 android15"
 KO_SELECTED=""
 
-# 优先级1: 完全匹配 android版本+完整内核版本
+# 优先级0: 新格式 androidXX-kernel_module.ko
 for android_ver in $ANDROID_VERSIONS; do
-    ko_file="$COMM_DIR/batt_design_override-${android_ver}-${KREL}.ko"
+    # 尝试完整版本
+    ko_file="$COMM_DIR/${android_ver}-${KREL}_batt_design_override.ko"
     if [ -f "$ko_file" ]; then
         KO_SELECTED="$ko_file"
-        log "找到完全匹配的模块 (android+完整版本): $(basename "$KO_SELECTED")"
+        log "找到新格式模块 (完整版本): $(basename "$KO_SELECTED")"
+        break
+    fi
+    # 尝试主次版本
+    ko_file="$COMM_DIR/${android_ver}-${MAJOR_MINOR}_batt_design_override.ko"
+    if [ -f "$ko_file" ]; then
+        KO_SELECTED="$ko_file"
+        log "找到新格式模块 (主次版本): $(basename "$KO_SELECTED")"
         break
     fi
 done
+
+# 优先级1: 完全匹配 android版本+完整内核版本
+if [ -z "$KO_SELECTED" ]; then
+    for android_ver in $ANDROID_VERSIONS; do
+        ko_file="$COMM_DIR/batt_design_override-${android_ver}-${KREL}.ko"
+        if [ -f "$ko_file" ]; then
+            KO_SELECTED="$ko_file"
+            log "找到完全匹配的模块 (android+完整版本): $(basename "$KO_SELECTED")"
+            break
+        fi
+    done
+fi
 
 # 优先级2: 完全匹配 android版本+主次版本
 if [ -z "$KO_SELECTED" ]; then
@@ -124,8 +144,34 @@ if ! insmod "$KO_SELECTED" $ARGS 2>&1; then
 fi
 
 # 可选：加载充电参数模块
-CHG_KO="$COMM_DIR/chg_param_override.ko"
-if [ -f "$CHG_KO" ]; then
+CHG_KO=""
+# 优先级0: 新格式 androidXX-kernel_chg_param_override.ko
+for android_ver in $ANDROID_VERSIONS; do
+    # 尝试完整版本
+    ko_file="$COMM_DIR/${android_ver}-${KREL}_chg_param_override.ko"
+    if [ -f "$ko_file" ]; then
+        CHG_KO="$ko_file"
+        log "找到新格式 chg 模块 (完整版本): $(basename "$CHG_KO")"
+        break
+    fi
+    # 尝试主次版本
+    ko_file="$COMM_DIR/${android_ver}-${MAJOR_MINOR}_chg_param_override.ko"
+    if [ -f "$ko_file" ]; then
+        CHG_KO="$ko_file"
+        log "找到新格式 chg 模块 (主次版本): $(basename "$CHG_KO")"
+        break
+    fi
+done
+
+# 优先级1: 通用匹配
+if [ -z "$CHG_KO" ]; then
+    if [ -f "$COMM_DIR/chg_param_override.ko" ]; then
+        CHG_KO="$COMM_DIR/chg_param_override.ko"
+        log "找到通用 chg 模块: $(basename "$CHG_KO")"
+    fi
+fi
+
+if [ -n "$CHG_KO" ]; then
     log "加载充电参数模块: $CHG_KO"
     insmod "$CHG_KO" 2>/dev/null || logw "充电模块加载失败"
     

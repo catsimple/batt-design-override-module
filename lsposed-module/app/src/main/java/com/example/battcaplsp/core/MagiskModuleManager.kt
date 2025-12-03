@@ -97,8 +97,19 @@ class MagiskModuleManager(private val context: Context) {
         }
     }
     
-    /** 获取模块路径 */
-    fun getModulePath(): String = "$MAGISK_MODULES_PATH/$MODULE_ID_PRIMARY"
+    /** 获取模块路径（智能识别：若存在旧版目录则优先返回，否则返回默认新版目录） */
+    suspend fun getModulePath(): String = withContext(Dispatchers.IO) {
+        // 优先检查旧版/手动版目录
+        val oldPath = "$MAGISK_MODULES_PATH/batt-design-override"
+        // 使用 RootShell 检查，因为普通应用可能无权访问 /data/adb
+        val checkOld = RootShell.exec("[ -d '$oldPath' ] && [ -f '$oldPath/module.prop' ]")
+        if (checkOld.code == 0) {
+            android.util.Log.d("MagiskModuleManager", "Resolved active module path: $oldPath")
+            return@withContext oldPath
+        }
+        // 默认返回新版目录
+        return@withContext "$MAGISK_MODULES_PATH/$MODULE_ID_PRIMARY"
+    }
     
     /** 创建轻量级 Magisk 模块（不包含 .ko 文件，已安装应用时不包含 APK） */
     suspend fun createLightweightModule(): ModuleInstallResult = withContext(Dispatchers.IO) {
@@ -168,8 +179,12 @@ class MagiskModuleManager(private val context: Context) {
     
     /** 创建 module.prop 文件（使用 root shell） */
     private suspend fun createModulePropWithRoot(modulePath: String): Boolean {
+        // 根据目录名推断 id，确保接管旧模块时 id 保持一致
+        val dirName = modulePath.trimEnd('/').substringAfterLast('/')
+        val moduleId = if (dirName == "batt-design-override") "batt-design-override" else MODULE_ID_PRIMARY
+        
         val content = """
-            id=$MODULE_ID_PRIMARY
+            id=$moduleId
             name=$MODULE_NAME
             version=$MODULE_VERSION
             versionCode=200
@@ -217,6 +232,7 @@ class MagiskModuleManager(private val context: Context) {
             log "检测到内核版本: ${'$'}KREL (主版本: ${'$'}MAJOR_MINOR)"
             
             # 查找可用的 .ko 文件（按优先级排序，完全匹配优先）
+            # 0. 新格式：android版本-内核版本_模块名
             # 1. 完全匹配：android版本+完整内核版本
             # 2. 完全匹配：android版本+主次版本  
             # 3. 简化匹配：完整内核版本
@@ -225,15 +241,35 @@ class MagiskModuleManager(private val context: Context) {
             ANDROID_VERSIONS="android11 android12 android13 android14 android15"
             KO_SELECTED=""
             
-            # 优先级1: 完全匹配 android版本+完整内核版本
+            # 优先级0: 新格式 androidXX-kernel_module.ko
             for android_ver in ${'$'}ANDROID_VERSIONS; do
-                ko_file="${'$'}COMM_DIR/batt_design_override-${'$'}{android_ver}-${'$'}{KREL}.ko"
+                # 尝试完整版本
+                ko_file="${'$'}COMM_DIR/${'$'}{android_ver}-${'$'}{KREL}_batt_design_override.ko"
                 if [ -f "${'$'}ko_file" ]; then
                     KO_SELECTED="${'$'}ko_file"
-                    log "找到完全匹配的模块 (android+完整版本): ${'$'}(basename "${'$'}KO_SELECTED")"
+                    log "找到新格式模块 (完整版本): ${'$'}(basename "${'$'}KO_SELECTED")"
+                    break
+                fi
+                # 尝试主次版本
+                ko_file="${'$'}COMM_DIR/${'$'}{android_ver}-${'$'}{MAJOR_MINOR}_batt_design_override.ko"
+                if [ -f "${'$'}ko_file" ]; then
+                    KO_SELECTED="${'$'}ko_file"
+                    log "找到新格式模块 (主次版本): ${'$'}(basename "${'$'}KO_SELECTED")"
                     break
                 fi
             done
+
+            # 优先级1: 完全匹配 android版本+完整内核版本
+            if [ -z "${'$'}KO_SELECTED" ]; then
+                for android_ver in ${'$'}ANDROID_VERSIONS; do
+                    ko_file="${'$'}COMM_DIR/batt_design_override-${'$'}{android_ver}-${'$'}{KREL}.ko"
+                    if [ -f "${'$'}ko_file" ]; then
+                        KO_SELECTED="${'$'}ko_file"
+                        log "找到完全匹配的模块 (android+完整版本): ${'$'}(basename "${'$'}KO_SELECTED")"
+                        break
+                    fi
+                done
+            fi
             
             # 优先级2: 完全匹配 android版本+主次版本
             if [ -z "${'$'}KO_SELECTED" ]; then
@@ -306,7 +342,7 @@ class MagiskModuleManager(private val context: Context) {
             fi
             
             # 可选：加载充电参数模块
-            CHG_PATTERNS="chg_param_override-android*-${'$'}{MAJOR_MINOR}.ko chg_param_override-${'$'}{MAJOR_MINOR}.ko chg_param_override.ko"
+            CHG_PATTERNS="android*-${'$'}{KREL}_chg_param_override.ko android*-${'$'}{MAJOR_MINOR}_chg_param_override.ko chg_param_override-android*-${'$'}{MAJOR_MINOR}.ko chg_param_override-${'$'}{MAJOR_MINOR}.ko chg_param_override.ko"
             CHG_KO=""
             
             for pattern in ${'$'}CHG_PATTERNS; do
@@ -546,10 +582,34 @@ class MagiskModuleManager(private val context: Context) {
             }
 
             if (autoLoad) {
+                // 尝试卸载旧模块（如果已加载），确保热更新生效
+                // 内核模块名通常会将 - 转换为 _
+                val kernelModuleName = moduleName.replace('-', '_')
+                val rmmodResult = RootShell.exec("rmmod $kernelModuleName")
+                if (rmmodResult.code == 0) {
+                    android.util.Log.d("MagiskModuleManager", "Successfully unloaded old module: $kernelModuleName")
+                } else {
+                    android.util.Log.w("MagiskModuleManager", "Failed to unload old module (might not be loaded): ${rmmodResult.err}")
+                }
+
                 // 仅尝试用户指定的新复制文件 (不做多轮搜索) 避免与 service.sh 交叉叠加风险
+                // 增强：读取 params.conf 并应用参数，模拟 service.sh 的行为
                 val insmodCmd = buildString {
-                    append("insmod '$modulePath/common/$installed'")
-                    if (loadParams.isNotBlank()) append(' ').append(loadParams)
+                    append("CONF='$modulePath/common/params.conf'; ")
+                    append("[ -f \"\$CONF\" ] && . \"\$CONF\"; ")
+                    append("ARGS=''; ")
+                    append("[ -n \"\$MODEL_NAME\" ] && ARGS=\"\$ARGS model_name=\$MODEL_NAME\"; ")
+                    append("[ -n \"\$DESIGN_UAH\" ] && ARGS=\"\$ARGS design_uah=\$DESIGN_UAH\"; ")
+                    append("[ -n \"\$DESIGN_UWH\" ] && ARGS=\"\$ARGS design_uwh=\$DESIGN_UWH\"; ")
+                    append("[ -n \"\$BATT_NAME\" ] && ARGS=\"\$ARGS batt_name=\$BATT_NAME\"; ")
+                    append("[ -n \"\$OVERRIDE_ANY\" ] && ARGS=\"\$ARGS override_any=\$OVERRIDE_ANY\"; ")
+                    append("[ -n \"\$VERBOSE\" ] && ARGS=\"\$ARGS verbose=\$VERBOSE\"; ")
+                    
+                    if (loadParams.isNotBlank()) {
+                        append("ARGS=\"\$ARGS $loadParams\"; ")
+                    }
+                    
+                    append("insmod '$modulePath/common/$installed' \$ARGS")
                 }
                 val result = RootShell.exec(insmodCmd)
                 autoLoaded = result.code == 0

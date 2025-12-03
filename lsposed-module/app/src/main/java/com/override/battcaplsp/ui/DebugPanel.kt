@@ -288,7 +288,6 @@ fun DebugPanel(moduleManager: ModuleManager) {
             }) { Text("采集信息") }
             Button(enabled = compatInfo.isNotBlank(), onClick = {
                 scope.launch {
-                    val clip = android.content.ClipboardManager::class.java
                     try {
                         val cm = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
                         cm.setPrimaryClip(android.content.ClipData.newPlainText("compat", compatInfo))

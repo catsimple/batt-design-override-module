@@ -78,15 +78,35 @@ MAJOR_MINOR=$(echo "$BASE_VER" | cut -d. -f1,2) # 5.15
 ANDROID_VERSIONS="android11 android12 android13 android14 android15"
 KO_SELECTED=""
 
-# 优先级1: 完全匹配 android版本+完整内核版本
+# 优先级0: 新格式 androidXX-kernel_module.ko
 for android_ver in $ANDROID_VERSIONS; do
-    ko_file="$COMM_DIR/batt_design_override-${android_ver}-${KREL}.ko"
+    # 尝试完整版本
+    ko_file="$COMM_DIR/${android_ver}-${KREL}_batt_design_override.ko"
     if [ -f "$ko_file" ]; then
         KO_SELECTED="$ko_file"
-        log "找到完全匹配的模块 (android+完整版本): $(basename "$KO_SELECTED")"
+        log "找到新格式模块 (完整版本): $(basename "$KO_SELECTED")"
+        break
+    fi
+    # 尝试主次版本
+    ko_file="$COMM_DIR/${android_ver}-${MAJOR_MINOR}_batt_design_override.ko"
+    if [ -f "$ko_file" ]; then
+        KO_SELECTED="$ko_file"
+        log "找到新格式模块 (主次版本): $(basename "$KO_SELECTED")"
         break
     fi
 done
+
+# 优先级1: 完全匹配 android版本+完整内核版本
+if [ -z "$KO_SELECTED" ]; then
+    for android_ver in $ANDROID_VERSIONS; do
+        ko_file="$COMM_DIR/batt_design_override-${android_ver}-${KREL}.ko"
+        if [ -f "$ko_file" ]; then
+            KO_SELECTED="$ko_file"
+            log "找到完全匹配的模块 (android+完整版本): $(basename "$KO_SELECTED")"
+            break
+        fi
+    done
+fi
 
 # 优先级2: 完全匹配 android版本+主次版本
 if [ -z "$KO_SELECTED" ]; then
@@ -167,9 +187,35 @@ else
 fi
 
 # ========== 可选：加载 chg_param_override.ko 并应用参数 ==========
-# chg 模块文件名固定为 chg_param_override.ko（暂无多版本后缀需求）
-CHG_KO="$COMM_DIR/chg_param_override.ko"
-if [ -f "$CHG_KO" ]; then
+# 查找 chg 模块，支持新旧格式
+CHG_KO=""
+# 优先级0: 新格式 androidXX-kernel_chg_param_override.ko
+for android_ver in $ANDROID_VERSIONS; do
+    # 尝试完整版本
+    ko_file="$COMM_DIR/${android_ver}-${KREL}_chg_param_override.ko"
+    if [ -f "$ko_file" ]; then
+        CHG_KO="$ko_file"
+        log "找到新格式 chg 模块 (完整版本): $(basename "$CHG_KO")"
+        break
+    fi
+    # 尝试主次版本
+    ko_file="$COMM_DIR/${android_ver}-${MAJOR_MINOR}_chg_param_override.ko"
+    if [ -f "$ko_file" ]; then
+        CHG_KO="$ko_file"
+        log "找到新格式 chg 模块 (主次版本): $(basename "$CHG_KO")"
+        break
+    fi
+done
+
+# 优先级1: 通用匹配
+if [ -z "$CHG_KO" ]; then
+    if [ -f "$COMM_DIR/chg_param_override.ko" ]; then
+        CHG_KO="$COMM_DIR/chg_param_override.ko"
+        log "找到通用 chg 模块: $(basename "$CHG_KO")"
+    fi
+fi
+
+if [ -n "$CHG_KO" ]; then
   # 读取可能存在的 chg 配置键
   # 可用键：CHG_VMAX_UV CHG_CCC_UA CHG_TERM_UA CHG_ICL_UA CHG_LIMIT_PERCENT CHG_PD_VERIFED_ENABLED CHG_PD_VERIFED
   CHG_ARGS=""

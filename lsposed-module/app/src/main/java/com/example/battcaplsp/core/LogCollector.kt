@@ -15,7 +15,7 @@ object LogCollector {
     )
 
     /** 获取最近日志末尾 maxLines 行；失败返回空字符串。 */
-    fun getRecentLogs(context: Context, maxLines: Int = 400): String {
+    fun getRecentLogs(maxLines: Int = 400): String {
         return try {
             // -d 只读取并退出；-v time 保留时间戳；不加过滤先全量读再截尾
             val proc = Runtime.getRuntime().exec(arrayOf("logcat", "-d", "-v", "time"))

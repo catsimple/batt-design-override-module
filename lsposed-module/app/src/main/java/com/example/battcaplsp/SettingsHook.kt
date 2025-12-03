@@ -90,7 +90,7 @@ class SettingsHook : IXposedHookLoadPackage {
         return try {
             val clz = Class.forName("android.os.SystemProperties")
             val get = clz.getMethod("get", String::class.java, String::class.java)
-            val v = get.invoke(null, "ro.miui.ui.version.name", "").toString()
+            val v = get.invoke(null, "ro.miui.ui.version.name", "")?.toString() ?: ""
             v.isNotEmpty() || android.os.Build.MANUFACTURER.contains("Xiaomi", true)
         } catch (_: Throwable) {
             android.os.Build.MANUFACTURER.contains("Xiaomi", true)
@@ -201,7 +201,7 @@ class SettingsHook : IXposedHookLoadPackage {
         return try {
             val clz = Class.forName("android.os.SystemProperties")
             val get = clz.getMethod("get", String::class.java, String::class.java)
-            val cap = get.invoke(null, "persist.sys.batt.capacity_mah", "").toString()
+            val cap = get.invoke(null, "persist.sys.batt.capacity_mah", "")?.toString() ?: ""
             cap.toIntOrNull() ?: -1
         } catch (_: Throwable) { -1 }
     }

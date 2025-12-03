@@ -162,10 +162,10 @@ fun HookSettingsScreen(repo: HookSettingsRepository) {
             // 仅当模块已加载时再去读 vermagic，避免大量无谓 root 调用
             suspend fun readLoadedVermagic(module: String): String = withContext(kotlinx.coroutines.Dispatchers.IO) {
                 try {
-                    val sysFile = File("/sys/module/${'$'}module/vermagic")
+                    val sysFile = File("/sys/module/$module/vermagic")
                     if (sysFile.exists()) return@withContext sysFile.readText().trim()
-                    val vres = RootShell.exec("modinfo -F vermagic ${'$'}module | head -1")
-                    if (vres.code == 0 && vres.out.isNotBlank()) return@withContext vres.out.trim() else ""
+                    val vres = RootShell.exec("modinfo -F vermagic $module | head -1")
+                    if (vres.code == 0 && vres.out.isNotBlank()) return@withContext vres.out.trim()
                 } catch (_: Throwable) { }
                 return@withContext ""
             }
@@ -301,7 +301,7 @@ fun HookSettingsScreen(repo: HookSettingsRepository) {
                         loadingLog = true
                         logContent = null
                         scope.launch {
-                            logContent = com.override.battcaplsp.core.LogCollector.getRecentLogs(context, maxLines = 400)
+                            logContent = com.override.battcaplsp.core.LogCollector.getRecentLogs(maxLines = 400)
                             loadingLog = false
                         }
                     },
@@ -317,7 +317,7 @@ fun HookSettingsScreen(repo: HookSettingsRepository) {
                 // 显示当前版本和检查结果
                 versionCheckResult?.let { result ->
                     if (result.error != null) {
-                        StatusLine(type = StatusType.ERROR, text = result.error ?: "未知错误")
+                        StatusLine(type = StatusType.ERROR, text = result.error)
                     } else {
                         Text(
                             text = "当前版本: ${result.currentVersion}",
@@ -535,7 +535,7 @@ fun HookSettingsScreen(repo: HookSettingsRepository) {
                 
                 // Magisk / 动态模块状态区块（原管理卡片内容合并）
                 Spacer(Modifier.height(8.dp))
-                Divider()
+                HorizontalDivider()
                 Spacer(Modifier.height(8.dp))
                 Text("环境与动态模块", style = MaterialTheme.typography.titleSmall)
                 Spacer(Modifier.height(4.dp))
@@ -906,26 +906,27 @@ fun HookSettingsScreen(repo: HookSettingsRepository) {
             return
         }
     setMsg("INFO:测试通过，正在安装...")
-        // 针对 chg_param_override 支持安装后立即试加载 (autoLoad)，其它模块仍只复制
-        val autoLoad = moduleName == "chg_param_override"
+        // 对所有模块都启用 autoLoad，尝试立即生效
+        val autoLoad = true
         val detailed = magiskManager.installKernelModuleDetailed(
             moduleName = moduleName,
             koFilePath = localPath,
             version = version,
             autoLoad = autoLoad,
-            loadParams = if (autoLoad) "verbose=1" else ""
+            loadParams = "verbose=1"
         )
         if (detailed.success) {
             val loadPart = if (autoLoad) {
-                if (detailed.autoLoaded) "已尝试加载 (code=0)" else "已复制(加载失败, 可稍后重试)"
-            } else "已复制"
+                if (detailed.autoLoaded) "已加载生效" else "已安装(需重启)"
+            } else "已安装"
             val errTail = if (detailed.errorMessages.isNotEmpty()) " | warn:${detailed.errorMessages.first()}" else ""
             setMsg("SUCCESS:$moduleName 安装成功 ($loadPart)$errTail")
         } else {
             val reason = detailed.errorMessages.firstOrNull()?.take(120) ?: "未知原因"
             setMsg("ERROR:$moduleName 安装失败: $reason")
         }
-        try { RootShell.exec("rmmod ${moduleName}") } catch (_: Throwable) {}
+        // 移除 rmmod，保持模块加载状态
+        // try { RootShell.exec("rmmod ${moduleName}") } catch (_: Throwable) {}
         isInstallingModule = false
     }
 
@@ -1115,6 +1116,24 @@ fun HookSettingsScreen(repo: HookSettingsRepository) {
                                                     apkLocalPath = local
                                                     apkPhase = "ready"
                                                     downloadingApk = false
+                                                    
+                                                    // 自动开始安装
+                                                    apkPhase = "installing"
+                                                    val p = apkLocalPath
+                                                    if (p != null) {
+                                                        val res = apkDownloadManager.installApk(p)
+                                                        if (res.success) {
+                                                            apkPhase = "done"
+                                                            showUpdateDialog = false
+                                                        } else {
+                                                            apkPhase = "error"
+                                                            val err = res.error ?: "未知错误"
+                                                            android.widget.Toast.makeText(context, "安装失败：$err", android.widget.Toast.LENGTH_LONG).show()
+                                                        }
+                                                    } else {
+                                                        apkPhase = "error"
+                                                        android.widget.Toast.makeText(context, "文件路径缺失", android.widget.Toast.LENGTH_LONG).show()
+                                                    }
                                                     break
                                                 }
                                                 if (pg.failed) {
@@ -1206,7 +1225,7 @@ fun HookSettingsScreen(repo: HookSettingsRepository) {
                     TextButton(onClick = {
                         loadingLog = true
                         scope.launch {
-                            logContent = com.override.battcaplsp.core.LogCollector.getRecentLogs(context, maxLines = 400)
+                            logContent = com.override.battcaplsp.core.LogCollector.getRecentLogs(maxLines = 400)
                             loadingLog = false
                         }
                     }) { Text("刷新") }

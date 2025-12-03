@@ -229,7 +229,6 @@ class KernelModuleDownloader(private val context: Context) {
             
             // 分割成release段落，通过查找 "tag_name" 开始的位置
             val tagMatches = tagNamePattern.findAll(jsonResponse).toList()
-            val nameMatches = namePattern.findAll(jsonResponse).toList()
             
             android.util.Log.d("KernelModuleDownloader", "Found ${tagMatches.size} tag_name matches")
             

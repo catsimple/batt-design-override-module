@@ -24,11 +24,11 @@ class ModuleManager(
                 val versionStr = runCatching { File("/proc/version").readText().trim() }.getOrNull().orEmpty()
 
                 when {
-                    releaseCandidate.isNotBlank() -> parseKernelVersion(versionStr, releaseCandidate)
+                    releaseCandidate.isNotBlank() -> parseKernelVersion(releaseCandidate)
                     versionStr.isNotBlank() -> {
                         val m = Regex("Linux version ([^ ]+)").find(versionStr)
                         val rel = m?.groupValues?.getOrNull(1).orEmpty()
-                        if (rel.isNotBlank()) parseKernelVersion(versionStr, rel) else KernelVersion("unknown", "unknown", "unknown")
+                        if (rel.isNotBlank()) parseKernelVersion(rel) else KernelVersion("unknown", "unknown", "unknown")
                     }
                     else -> KernelVersion("unknown", "unknown", "unknown")
                 }
@@ -38,7 +38,7 @@ class ModuleManager(
         }
     }
     
-    private fun parseKernelVersion(versionStr: String, releaseStr: String): KernelVersion {
+    private fun parseKernelVersion(releaseStr: String): KernelVersion {
         // 解析类似 "5.15.123-g1234567-ab123456" 的版本字符串
         val baseVersion = releaseStr.split('-').firstOrNull() ?: "unknown"
         val majorMinor = baseVersion.split('.').take(2).joinToString(".")

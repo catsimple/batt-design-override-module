@@ -193,7 +193,7 @@ class ApkDownloadManager(private val context: Context) {
 
         // 使用 FileProvider content:// 避免 FileUri 暴露
         val contentUri = try {
-            FileProvider.getUriForFile(context, "com.override.battcaplsp.fileprovider", file)
+            FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
         } catch (e: IllegalArgumentException) {
             return@withContext InstallResult(false, "FileProvider路径不匹配:${e.message}")
         }
@@ -252,7 +252,7 @@ class ApkDownloadManager(private val context: Context) {
                 val pm = context.packageManager
                 val flagBase = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK
                 val intents = listOf(
-                    Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
+                    Intent(Intent.ACTION_VIEW).apply {
                         data = contentUri
                         type = "application/vnd.android.package-archive"
                         addFlags(flagBase)

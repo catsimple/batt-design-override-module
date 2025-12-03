@@ -191,7 +191,7 @@ fun ChargingScreen(repo: ChgParamRepository, mgr: ChgModuleManager) {
             )
             Spacer(Modifier.height(12.dp))
         }
-        Spacer(Modifier.height(12.dp)); Divider(); Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(12.dp)); HorizontalDivider(); Spacer(Modifier.height(12.dp))
         if (msg.isNotBlank()) {
             StatusBadge(msg, showLabel = "结果:")
         }

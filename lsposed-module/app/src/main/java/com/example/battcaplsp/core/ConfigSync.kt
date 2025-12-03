@@ -8,7 +8,7 @@ object ConfigSync {
     private fun getModuleConfPath(context: Context): String {
         return runBlocking {
             try {
-                val magiskMgr = MagiskModuleManager(context)
+                MagiskModuleManager(context)
                 
                 // 检查动态模块是否存在
                 val dynamicPath = "/data/adb/modules/batt-design-override-dynamic/common/params.conf"
@@ -94,7 +94,7 @@ object ConfigSync {
                 val duwh = designUwh.coerceIn(0, 1_000_000_000L)
 
                 // 需要更新的键集合（全部大写与 service.sh 约定一致）
-                val keys = listOf("BATT_NAME","DESIGN_UAH","DESIGN_UWH","MODEL_NAME","OVERRIDE_ANY","VERBOSE")
+                // val keys = listOf("BATT_NAME","DESIGN_UAH","DESIGN_UWH","MODEL_NAME","OVERRIDE_ANY","VERBOSE")
 
                 val script = """
                 CONF="${confPath}"

@@ -124,17 +124,33 @@ class MainActivity: ComponentActivity() {
     @Composable private fun AppScaffold() {
         var tab by remember { mutableStateOf(0) }
         
-        // 模块可用性状态 (默认为 false，检测到可用后显示)
-        var isBattAvailable by remember { mutableStateOf(false) }
-        var isChgAvailable by remember { mutableStateOf(false) }
+        // 优化：从 SharedPreferences 读取缓存状态，避免初始闪烁
+        val prefs = remember { getPreferences(android.content.Context.MODE_PRIVATE) }
+        
+        // 模块可用性状态
+        // 电池模块默认为 true (核心功能，假设用户已安装)，避免首次进入时 Tab 闪烁
+        var isBattAvailable by remember { mutableStateOf(prefs.getBoolean("cache_batt_available", true)) }
+        // 充电模块默认为 false (可选功能)
+        var isChgAvailable by remember { mutableStateOf(prefs.getBoolean("cache_chg_available", false)) }
         
         // 异步检查模块可用性
         LaunchedEffect(Unit) {
             // 并行检查
             val batt = async { battMgr.isAvailable() }
             val chg = async { chgMgr.isAvailable() }
-            isBattAvailable = batt.await()
-            isChgAvailable = chg.await()
+            
+            val newBatt = batt.await()
+            val newChg = chg.await()
+            
+            // 仅在状态变化时更新并保存
+            if (newBatt != isBattAvailable) {
+                isBattAvailable = newBatt
+                prefs.edit().putBoolean("cache_batt_available", newBatt).apply()
+            }
+            if (newChg != isChgAvailable) {
+                isChgAvailable = newChg
+                prefs.edit().putBoolean("cache_chg_available", newChg).apply()
+            }
         }
 
         // 动态构建 tabs
