@@ -163,88 +163,114 @@ fun HookSettingsScreen(
         // 如果不是强制刷新，且缓存未过期，且当前状态不为空（防止Cache有时间但无数据的情况），则直接返回
         if (!force && !initialLoading && (now - HookSettingsStatusCache.lastStatusLoadTime) < statusTtlMs && rootStatus != null) return
 
-        // 并行获取基础状态
+        // 并行获取基础状态，每个任务独立更新 UI
         kotlinx.coroutines.coroutineScope {
-            val rootDeferred = async { RootShell.getRootStatus(forceRefresh = force) }
-            val battLoadedDeferred = async { battMgr.isLoaded() }
-            val chgLoadedDeferred = async { chgMgr.isLoaded() }
-            val battAvailableDeferred = async { battMgr.isAvailable() }
-            val chgAvailableDeferred = async { chgMgr.isAvailable() }
-            val magiskAvailDeferred = async { magiskManager.isMagiskAvailable() }
-            val magiskInstalledDeferred = async { magiskManager.isModuleInstalled() }
-            val kernelVersionDeferred = async { runCatching { battMgr.getKernelVersion() }.getOrNull() }
-
-            val newRoot = rootDeferred.await()
-            val newBattLoaded = battLoadedDeferred.await()
-            val newChgLoaded = chgLoadedDeferred.await()
-            val newBattAvailable = battAvailableDeferred.await()
-            val newChgAvailable = chgAvailableDeferred.await()
-            val newMagiskAvail = magiskAvailDeferred.await()
-            val newMagiskInstalled = magiskInstalledDeferred.await()
-            val newKernelVersion = kernelVersionDeferred.await()
-
-            var newKernelVersionStr = newKernelVersion?.majorMinor ?: "未知"
-            var newKernelVersionDetailStr = newKernelVersion?.full?.split('-')?.take(2)?.joinToString("-") ?: ""
-
-            // 只在需要且缓存过期时获取 availableModules（依赖 kernelVersion）
-            val needFetchModules = (HookSettingsStatusCache.cachedModules.isEmpty() || (now - HookSettingsStatusCache.lastModulesFetchTime) > modulesTtlMs) && newKernelVersion != null
-            if (needFetchModules && newKernelVersion != null) {
-                val fetched = runCatching { downloader.getAvailableModules(newKernelVersion) }.getOrElse { emptyList() }
-                HookSettingsStatusCache.cachedModules = fetched
-                HookSettingsStatusCache.lastModulesFetchTime = now
+            // Root Status
+            launch {
+                val newRoot = RootShell.getRootStatus(forceRefresh = force)
+                rootStatus = newRoot
+                HookSettingsStatusCache.rootStatus = newRoot
             }
 
-            // 仅当模块已加载时再去读 vermagic，避免大量无谓 root 调用
-            suspend fun readLoadedVermagic(module: String): String = withContext(kotlinx.coroutines.Dispatchers.IO) {
-                try {
-                    val sysFile = File("/sys/module/$module/vermagic")
-                    if (sysFile.exists()) return@withContext sysFile.readText().trim()
-                    val vres = RootShell.exec("modinfo -F vermagic $module | head -1")
-                    if (vres.code == 0 && vres.out.isNotBlank()) return@withContext vres.out.trim()
-                } catch (_: Throwable) { }
-                return@withContext ""
+            // Kernel Version & Available Modules
+            launch {
+                val newKernelVersion = runCatching { battMgr.getKernelVersion() }.getOrNull()
+                val newKernelVersionStr = newKernelVersion?.majorMinor ?: "未知"
+                val newKernelVersionDetailStr = newKernelVersion?.full?.split('-')?.take(2)?.joinToString("-") ?: ""
+                
+                detectedKernelVersion = newKernelVersion
+                kernelVersion = newKernelVersionStr
+                kernelVersionDetail = newKernelVersionDetailStr
+                
+                HookSettingsStatusCache.detectedKernelVersion = newKernelVersion
+                HookSettingsStatusCache.kernelVersion = newKernelVersionStr
+                HookSettingsStatusCache.kernelVersionDetail = newKernelVersionDetailStr
+                
+                if (newKernelVersion != null) {
+                     val needFetchModules = (HookSettingsStatusCache.cachedModules.isEmpty() || (now - HookSettingsStatusCache.lastModulesFetchTime) > modulesTtlMs)
+                     if (needFetchModules) {
+                         val fetched = runCatching { downloader.getAvailableModules(newKernelVersion) }.getOrElse { emptyList() }
+                         availableModules = fetched
+                         HookSettingsStatusCache.cachedModules = fetched
+                         HookSettingsStatusCache.lastModulesFetchTime = now
+                     } else {
+                         availableModules = HookSettingsStatusCache.cachedModules
+                     }
+                }
             }
 
-            val battVermagicDeferred = if (newBattLoaded == true) async { readLoadedVermagic("batt_design_override") } else null
-            val chgVermagicDeferred = if (newChgLoaded == true) async { readLoadedVermagic("chg_param_override") } else null
+            // Batt Module Loaded
+            launch {
+                val newBattLoaded = battMgr.isLoaded()
+                battModuleLoaded = newBattLoaded
+                HookSettingsStatusCache.battModuleLoaded = newBattLoaded
+                
+                if (newBattLoaded == true) {
+                     val newBattVermagic = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        try {
+                            val sysFile = File("/sys/module/batt_design_override/vermagic")
+                            if (sysFile.exists()) return@withContext sysFile.readText().trim()
+                            val vres = RootShell.exec("modinfo -F vermagic batt_design_override | head -1")
+                            if (vres.code == 0 && vres.out.isNotBlank()) return@withContext vres.out.trim()
+                        } catch (_: Throwable) { }
+                        ""
+                    }
+                    battModuleVermagic = newBattVermagic
+                    HookSettingsStatusCache.battModuleVermagic = newBattVermagic
+                }
+            }
 
-            val newBattVermagic = battVermagicDeferred?.await().orEmpty()
-            val newChgVermagic = chgVermagicDeferred?.await().orEmpty()
+            // Chg Module Loaded
+            launch {
+                val newChgLoaded = chgMgr.isLoaded()
+                chgModuleLoaded = newChgLoaded
+                HookSettingsStatusCache.chgModuleLoaded = newChgLoaded
+                
+                if (newChgLoaded == true) {
+                     val newChgVermagic = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        try {
+                            val sysFile = File("/sys/module/chg_param_override/vermagic")
+                            if (sysFile.exists()) return@withContext sysFile.readText().trim()
+                            val vres = RootShell.exec("modinfo -F vermagic chg_param_override | head -1")
+                            if (vres.code == 0 && vres.out.isNotBlank()) return@withContext vres.out.trim()
+                        } catch (_: Throwable) { }
+                        ""
+                    }
+                    chgModuleVermagic = newChgVermagic
+                    HookSettingsStatusCache.chgModuleVermagic = newChgVermagic
+                }
+            }
 
-            // 一次性赋值到 Compose 状态
-            rootStatus = newRoot
-            battModuleLoaded = newBattLoaded
-            chgModuleLoaded = newChgLoaded
-            battModuleAvailable = newBattAvailable
-            chgModuleAvailable = newChgAvailable
-            magiskAvailable = newMagiskAvail
-            magiskModuleInstalled = newMagiskInstalled
-            detectedKernelVersion = newKernelVersion
-            kernelVersion = newKernelVersionStr
-            kernelVersionDetail = newKernelVersionDetailStr
-            availableModules = HookSettingsStatusCache.cachedModules
-            // 版本号已不展示
-            battModuleVersion = ""
-            battModuleVermagic = newBattVermagic
-            chgModuleVersion = ""
-            chgModuleVermagic = newChgVermagic
-            initialLoading = false
-            
-            // 更新全局缓存
-            HookSettingsStatusCache.rootStatus = newRoot
-            HookSettingsStatusCache.battModuleLoaded = newBattLoaded
-            HookSettingsStatusCache.chgModuleLoaded = newChgLoaded
-            HookSettingsStatusCache.battModuleAvailable = newBattAvailable
-            HookSettingsStatusCache.chgModuleAvailable = newChgAvailable
-            HookSettingsStatusCache.magiskAvailable = newMagiskAvail
-            HookSettingsStatusCache.magiskModuleInstalled = newMagiskInstalled
-            HookSettingsStatusCache.detectedKernelVersion = newKernelVersion
-            HookSettingsStatusCache.kernelVersion = newKernelVersionStr
-            HookSettingsStatusCache.kernelVersionDetail = newKernelVersionDetailStr
-            HookSettingsStatusCache.battModuleVermagic = newBattVermagic
-            HookSettingsStatusCache.chgModuleVermagic = newChgVermagic
-            HookSettingsStatusCache.lastStatusLoadTime = now
+            // Batt Module Available
+            launch {
+                val newBattAvailable = battMgr.isAvailable()
+                battModuleAvailable = newBattAvailable
+                HookSettingsStatusCache.battModuleAvailable = newBattAvailable
+            }
+
+            // Chg Module Available
+            launch {
+                val newChgAvailable = chgMgr.isAvailable()
+                chgModuleAvailable = newChgAvailable
+                HookSettingsStatusCache.chgModuleAvailable = newChgAvailable
+            }
+
+            // Magisk
+            launch {
+                val newMagiskAvail = magiskManager.isMagiskAvailable()
+                magiskAvailable = newMagiskAvail
+                HookSettingsStatusCache.magiskAvailable = newMagiskAvail
+            }
+
+            launch {
+                val newMagiskInstalled = magiskManager.isModuleInstalled()
+                magiskModuleInstalled = newMagiskInstalled
+                HookSettingsStatusCache.magiskModuleInstalled = newMagiskInstalled
+            }
         }
+        
+        initialLoading = false
+        HookSettingsStatusCache.lastStatusLoadTime = now
     }
 
     LaunchedEffect(Unit) { loadStatus() }
