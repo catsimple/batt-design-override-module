@@ -49,6 +49,26 @@ private fun extractKernelVersionFromVermagic(vermagic: String): String {
 // 统一状态展示组件（代替 emoji）顶层定义，避免本地 enum 编译限制
 private enum class StatusType { SUCCESS, ERROR, WARN, INFO, UPDATE }
 
+// 全局缓存对象，用于在 Tab 切换时保留状态
+private object HookSettingsStatusCache {
+    var lastStatusLoadTime = 0L
+    var lastModulesFetchTime = 0L
+    var cachedModules: List<com.override.battcaplsp.core.KernelModuleDownloader.ModuleInfo> = emptyList()
+    
+    var rootStatus: RootShell.RootStatus? = null
+    var battModuleLoaded: Boolean? = null
+    var chgModuleLoaded: Boolean? = null
+    var battModuleAvailable: Boolean? = null
+    var chgModuleAvailable: Boolean? = null
+    var kernelVersion: String = ""
+    var kernelVersionDetail: String = ""
+    var battModuleVermagic: String = ""
+    var chgModuleVermagic: String = ""
+    var magiskAvailable: Boolean? = null
+    var magiskModuleInstalled: Boolean? = null
+    var detectedKernelVersion: ModuleManager.KernelVersion? = null
+}
+
 @Composable
 private fun StatusLine(type: StatusType, text: String) {
     val (icon, tint) = when (type) {
@@ -83,30 +103,29 @@ fun HookSettingsScreen(
     val githubClient = remember { com.override.battcaplsp.core.GitHubReleaseClient() }
     val safeInstaller = remember { com.override.battcaplsp.core.SafeModuleInstaller(context) }
     
-    var rootStatus by remember { mutableStateOf<RootShell.RootStatus?>(null) }
-    var battModuleLoaded by remember { mutableStateOf<Boolean?>(null) }
-    var chgModuleLoaded by remember { mutableStateOf<Boolean?>(null) }
-    var battModuleAvailable by remember { mutableStateOf<Boolean?>(null) }
-    var chgModuleAvailable by remember { mutableStateOf<Boolean?>(null) }
-    var kernelVersion by remember { mutableStateOf("") }
-    var kernelVersionDetail by remember { mutableStateOf("") }
+    var rootStatus by remember { mutableStateOf(HookSettingsStatusCache.rootStatus) }
+    var battModuleLoaded by remember { mutableStateOf(HookSettingsStatusCache.battModuleLoaded) }
+    var chgModuleLoaded by remember { mutableStateOf(HookSettingsStatusCache.chgModuleLoaded) }
+    var battModuleAvailable by remember { mutableStateOf(HookSettingsStatusCache.battModuleAvailable) }
+    var chgModuleAvailable by remember { mutableStateOf(HookSettingsStatusCache.chgModuleAvailable) }
+    var kernelVersion by remember { mutableStateOf(HookSettingsStatusCache.kernelVersion) }
+    var kernelVersionDetail by remember { mutableStateOf(HookSettingsStatusCache.kernelVersionDetail) }
     var battModuleVersion by remember { mutableStateOf("") }
-    // 删除充电模块版本号展示需求 -> 不再保留版本号状态
     var chgModuleVersion by remember { mutableStateOf("") }
-    var battModuleVermagic by remember { mutableStateOf("") }
-    var chgModuleVermagic by remember { mutableStateOf("") }
+    var battModuleVermagic by remember { mutableStateOf(HookSettingsStatusCache.battModuleVermagic) }
+    var chgModuleVermagic by remember { mutableStateOf(HookSettingsStatusCache.chgModuleVermagic) }
     var showRootDialog by remember { mutableStateOf(false) }
-    var magiskAvailable by remember { mutableStateOf<Boolean?>(null) }
-    var magiskModuleInstalled by remember { mutableStateOf<Boolean?>(null) }
-    var detectedKernelVersion by remember { mutableStateOf<ModuleManager.KernelVersion?>(null) }
-    var availableModules by remember { mutableStateOf<List<com.override.battcaplsp.core.KernelModuleDownloader.ModuleInfo>>(emptyList()) }
+    var magiskAvailable by remember { mutableStateOf(HookSettingsStatusCache.magiskAvailable) }
+    var magiskModuleInstalled by remember { mutableStateOf(HookSettingsStatusCache.magiskModuleInstalled) }
+    var detectedKernelVersion by remember { mutableStateOf(HookSettingsStatusCache.detectedKernelVersion) }
+    var availableModules by remember { mutableStateOf(HookSettingsStatusCache.cachedModules) }
     var downloadingModule by remember { mutableStateOf<String?>(null) }
     var moduleDownloadProgress by remember { mutableStateOf(0) }
     var moduleManagementMessage by remember { mutableStateOf("") }
     var showModuleDownloadDialog by remember { mutableStateOf(false) }
     var showCalibrationDialog by remember { mutableStateOf(false) }
     var isInstallingModule by remember { mutableStateOf(false) }
-    var initialLoading by remember { mutableStateOf(true) }
+    var initialLoading by remember { mutableStateOf(HookSettingsStatusCache.lastStatusLoadTime == 0L) }
     
     // 版本检查相关状态
     var versionCheckResult by remember { mutableStateOf<com.override.battcaplsp.core.GitHubReleaseClient.VersionCheckResult?>(null) }
@@ -132,16 +151,17 @@ fun HookSettingsScreen(
     }
     
     // 状态刷新缓存与并行优化
-    var lastStatusLoadTime by remember { mutableStateOf(0L) }
+    // var lastStatusLoadTime by remember { mutableStateOf(0L) } // 使用全局缓存
     val statusTtlMs = 5000L
     // availableModules 缓存更长一点（因为很少变化）
-    var lastModulesFetchTime by remember { mutableStateOf(0L) }
+    // var lastModulesFetchTime by remember { mutableStateOf(0L) } // 使用全局缓存
     val modulesTtlMs = 60000L
-    var cachedModules by remember { mutableStateOf<List<com.override.battcaplsp.core.KernelModuleDownloader.ModuleInfo>>(emptyList()) }
+    // var cachedModules by remember { mutableStateOf<List<com.override.battcaplsp.core.KernelModuleDownloader.ModuleInfo>>(emptyList()) } // 使用全局缓存
 
     suspend fun loadStatus(force: Boolean = false) {
         val now = System.currentTimeMillis()
-        if (!force && !initialLoading && (now - lastStatusLoadTime) < statusTtlMs) return
+        // 如果不是强制刷新，且缓存未过期，且当前状态不为空（防止Cache有时间但无数据的情况），则直接返回
+        if (!force && !initialLoading && (now - HookSettingsStatusCache.lastStatusLoadTime) < statusTtlMs && rootStatus != null) return
 
         // 并行获取基础状态
         kotlinx.coroutines.coroutineScope {
@@ -167,11 +187,11 @@ fun HookSettingsScreen(
             var newKernelVersionDetailStr = newKernelVersion?.full?.split('-')?.take(2)?.joinToString("-") ?: ""
 
             // 只在需要且缓存过期时获取 availableModules（依赖 kernelVersion）
-            val needFetchModules = (cachedModules.isEmpty() || (now - lastModulesFetchTime) > modulesTtlMs) && newKernelVersion != null
+            val needFetchModules = (HookSettingsStatusCache.cachedModules.isEmpty() || (now - HookSettingsStatusCache.lastModulesFetchTime) > modulesTtlMs) && newKernelVersion != null
             if (needFetchModules && newKernelVersion != null) {
                 val fetched = runCatching { downloader.getAvailableModules(newKernelVersion) }.getOrElse { emptyList() }
-                cachedModules = fetched
-                lastModulesFetchTime = now
+                HookSettingsStatusCache.cachedModules = fetched
+                HookSettingsStatusCache.lastModulesFetchTime = now
             }
 
             // 仅当模块已加载时再去读 vermagic，避免大量无谓 root 调用
@@ -202,14 +222,28 @@ fun HookSettingsScreen(
             detectedKernelVersion = newKernelVersion
             kernelVersion = newKernelVersionStr
             kernelVersionDetail = newKernelVersionDetailStr
-            availableModules = cachedModules
+            availableModules = HookSettingsStatusCache.cachedModules
             // 版本号已不展示
             battModuleVersion = ""
             battModuleVermagic = newBattVermagic
             chgModuleVersion = ""
             chgModuleVermagic = newChgVermagic
             initialLoading = false
-            lastStatusLoadTime = now
+            
+            // 更新全局缓存
+            HookSettingsStatusCache.rootStatus = newRoot
+            HookSettingsStatusCache.battModuleLoaded = newBattLoaded
+            HookSettingsStatusCache.chgModuleLoaded = newChgLoaded
+            HookSettingsStatusCache.battModuleAvailable = newBattAvailable
+            HookSettingsStatusCache.chgModuleAvailable = newChgAvailable
+            HookSettingsStatusCache.magiskAvailable = newMagiskAvail
+            HookSettingsStatusCache.magiskModuleInstalled = newMagiskInstalled
+            HookSettingsStatusCache.detectedKernelVersion = newKernelVersion
+            HookSettingsStatusCache.kernelVersion = newKernelVersionStr
+            HookSettingsStatusCache.kernelVersionDetail = newKernelVersionDetailStr
+            HookSettingsStatusCache.battModuleVermagic = newBattVermagic
+            HookSettingsStatusCache.chgModuleVermagic = newChgVermagic
+            HookSettingsStatusCache.lastStatusLoadTime = now
         }
     }
 

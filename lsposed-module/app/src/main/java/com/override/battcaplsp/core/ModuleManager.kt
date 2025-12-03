@@ -11,8 +11,13 @@ class ModuleManager(
     private val paramNames: List<String> = listOf("batt_name","override_any","verbose","design_uah","design_uwh","model_name")
 ) {
 
+    // 缓存内核版本，避免重复调用 shell
+    private var cachedKernelVersion: KernelVersion? = null
+
     /** 获取当前内核版本信息 */
     suspend fun getKernelVersion(): KernelVersion {
+        cachedKernelVersion?.let { return it }
+        
         return withContext(Dispatchers.IO) {
             try {
                 // 1) 先尝试读取 /proc/sys/kernel/osrelease；若权限被拒绝，退化到 uname -r 与 /proc/version
@@ -23,7 +28,7 @@ class ModuleManager(
 
                 val versionStr = runCatching { File("/proc/version").readText().trim() }.getOrNull().orEmpty()
 
-                when {
+                val result = when {
                     releaseCandidate.isNotBlank() -> parseKernelVersion(releaseCandidate)
                     versionStr.isNotBlank() -> {
                         val m = Regex("Linux version ([^ ]+)").find(versionStr)
@@ -32,6 +37,8 @@ class ModuleManager(
                     }
                     else -> KernelVersion("unknown", "unknown", "unknown")
                 }
+                cachedKernelVersion = result
+                result
             } catch (e: Exception) {
                 KernelVersion("unknown", "unknown", "unknown")
             }
@@ -68,28 +75,30 @@ class ModuleManager(
         android.util.Log.d("ModuleManager", "Possible file names: $possibleFileNames")
         android.util.Log.d("ModuleManager", "Search paths: $searchPaths")
         
-        // 在所有搜索路径中查找文件
+        // 优化：一次性检查所有路径下的所有可能文件
+        // 构建一个复杂的 shell 命令来批量检查
+        // 格式: if [ -f path1/file1 ]; then echo path1/file1; exit 0; fi; if [ -f path1/file2 ] ...
+        
+        val checkCmd = StringBuilder()
         for (searchPath in searchPaths) {
-            android.util.Log.d("ModuleManager", "Searching in path: $searchPath")
-            
             for (fileName in possibleFileNames) {
                 val filePath = "$searchPath/$fileName"
-                
-                try {
-                    // 使用 root shell 检查文件是否存在且不为空
-                    val checkResult = RootShell.exec("[ -f '$filePath' ] && [ -s '$filePath' ] && echo 'found' || echo 'not_found'")
-                    
-                    android.util.Log.d("ModuleManager", "Checking $filePath: result=${checkResult.out.trim()}")
-                    
-                    if (checkResult.code == 0 && checkResult.out.trim() == "found") {
-                        android.util.Log.d("ModuleManager", "Found module file: $filePath")
-                        return@withContext filePath
-                    }
-                } catch (e: Exception) {
-                    android.util.Log.w("ModuleManager", "Error checking file $filePath", e)
-                    continue
-                }
+                // 使用 -s 检查文件存在且不为空
+                checkCmd.append("if [ -s '$filePath' ]; then echo '$filePath'; exit 0; fi; ")
             }
+        }
+        checkCmd.append("echo 'not_found'")
+        
+        try {
+            val result = RootShell.exec(checkCmd.toString())
+            val output = result.out.trim()
+            
+            if (result.code == 0 && output != "not_found" && output.isNotEmpty()) {
+                android.util.Log.d("ModuleManager", "Found module file: $output")
+                return@withContext output
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("ModuleManager", "Error checking files batch", e)
         }
         
         android.util.Log.w("ModuleManager", "No suitable module file found for $moduleName")
@@ -108,26 +117,21 @@ class ModuleManager(
         // 获取对应的Android版本
         val androidVersion = getAndroidVersionFromKernel(kernelVersion.majorMinor)
         
-        // 按您要求的优先级排序：
-        // 1. 完全匹配：android版本+完整内核版本 (例如: batt_design_override-android13-5.15.192.ko)
+        // 1. 优先匹配：android版本-主次版本_模块名.ko (例如: android13-5.15_batt_design_override.ko)
+        // 这是您提供的文件列表中的命名格式
         if (androidVersion != null) {
-            fileNames.add("${moduleName}-${androidVersion}-${kernelVersion.full}.ko")
-            fileNames.add("${moduleName}-${androidVersion}-${kernelVersion.base}.ko")
+            fileNames.add("${androidVersion}-${kernelVersion.majorMinor}_${moduleName}.ko")
         }
-        
-        // 2. 完全匹配：android版本+主次版本 (例如: batt_design_override-android13-5.15.ko)
+
+        // 2. 兼容旧格式：模块名-android版本-主次版本.ko (例如: batt_design_override-android13-5.15.ko)
         if (androidVersion != null) {
             fileNames.add("${moduleName}-${androidVersion}-${kernelVersion.majorMinor}.ko")
         }
         
-        // 3. 简化匹配：完整内核版本 (例如: batt_design_override-5.15.192.ko)
-        fileNames.add("${moduleName}-${kernelVersion.full}.ko")
-        fileNames.add("${moduleName}-${kernelVersion.base}.ko")
-        
-        // 4. 简化匹配：主次版本 (例如: batt_design_override-5.15.ko)
+        // 3. 简化匹配：模块名-主次版本.ko (例如: batt_design_override-5.15.ko)
         fileNames.add("${moduleName}-${kernelVersion.majorMinor}.ko")
         
-        // 5. 通用匹配 (例如: batt_design_override.ko)
+        // 4. 通用匹配 (例如: batt_design_override.ko)
         fileNames.add("${moduleName}.ko")
         
         // 去重并保持顺序
@@ -148,6 +152,7 @@ class ModuleManager(
             "5.15" -> "android13"
             "6.1" -> "android14"
             "6.6" -> "android15"
+            "6.12" -> "android16"
             else -> null
         }
     }
@@ -156,11 +161,7 @@ class ModuleManager(
     private fun getDefaultSearchPaths(): List<String> {
         return listOf(
             "/data/adb/modules/batt-design-override-dynamic/common",  // 主要动态模块路径
-            "/data/adb/modules/batt-design-override/common",          // 备用静态模块路径
-            "/data/local/tmp",                                        // 临时下载路径
-            "/data/local/tmp/modules",                               // 临时模块路径
-            "/system/lib/modules",                                   // 系统模块路径
-            "/vendor/lib/modules"                                    // 厂商模块路径
+            "/data/adb/modules/batt-design-override/common"           // 备用静态模块路径
         )
     }
     
