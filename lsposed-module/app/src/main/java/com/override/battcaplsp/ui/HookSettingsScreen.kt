@@ -524,15 +524,16 @@ fun HookSettingsScreen(
                     verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
                 ) {
                     Text("Root权限:")
-                    TextButton(
-                        onClick = { 
+                    Row(
+                        modifier = Modifier.clickable {
                             scope.launch {
                                 // 清除缓存并强制重新检测
                                 RootShell.clearCache()
                                 rootStatus = RootShell.getRootStatus(forceRefresh = true)
                                 showRootDialog = true
                             }
-                        }
+                        },
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
                     ) {
                         when (rootStatus?.available) {
                             null -> CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
@@ -556,9 +557,9 @@ fun HookSettingsScreen(
                 
                 // Magisk / 动态模块状态区块（原管理卡片内容合并）
                 Spacer(Modifier.height(8.dp))
-                HorizontalDivider()
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                 Spacer(Modifier.height(8.dp))
-                Text("环境与动态模块", style = MaterialTheme.typography.titleSmall)
+                Text("环境与动态模块", style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(4.dp))
                 // Magisk
                 Row(
