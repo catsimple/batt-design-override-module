@@ -22,6 +22,7 @@ data class HookSettingsState(
     val hookSharedPrefs: Boolean = true,  // 是否Hook SharedPreferences
     val hookJsonMethods: Boolean = true,  // 是否Hook JSON方法
     val launcherIconEnabled: Boolean = true, // 是否显示桌面入口
+    val showLogButton: Boolean = true, // 是否显示日志按钮
 )
 
 object HookSettingsKeys {
@@ -33,6 +34,7 @@ object HookSettingsKeys {
     val hookSharedPrefs = booleanPreferencesKey("hook_sharedprefs")
     val hookJsonMethods = booleanPreferencesKey("hook_json_methods")
     val launcherIconEnabled = booleanPreferencesKey("launcher_icon_enabled")
+    val showLogButton = booleanPreferencesKey("show_log_button")
 }
 
 class HookSettingsRepository(private val context: Context) {
@@ -48,6 +50,7 @@ class HookSettingsRepository(private val context: Context) {
             hookSharedPrefs = preferences[HookSettingsKeys.hookSharedPrefs] ?: true,
             hookJsonMethods = preferences[HookSettingsKeys.hookJsonMethods] ?: true,
             launcherIconEnabled = preferences[HookSettingsKeys.launcherIconEnabled] ?: true,
+            showLogButton = preferences[HookSettingsKeys.showLogButton] ?: true,
         )
     }
 
@@ -62,6 +65,7 @@ class HookSettingsRepository(private val context: Context) {
                 hookSharedPrefs = preferences[HookSettingsKeys.hookSharedPrefs] ?: true,
                 hookJsonMethods = preferences[HookSettingsKeys.hookJsonMethods] ?: true,
                 launcherIconEnabled = preferences[HookSettingsKeys.launcherIconEnabled] ?: true,
+                showLogButton = preferences[HookSettingsKeys.showLogButton] ?: true,
             )
             val updated = transform(current)
             preferences[HookSettingsKeys.hookEnabled] = updated.hookEnabled
@@ -72,6 +76,7 @@ class HookSettingsRepository(private val context: Context) {
             preferences[HookSettingsKeys.hookSharedPrefs] = updated.hookSharedPrefs
             preferences[HookSettingsKeys.hookJsonMethods] = updated.hookJsonMethods
             preferences[HookSettingsKeys.launcherIconEnabled] = updated.launcherIconEnabled
+            preferences[HookSettingsKeys.showLogButton] = updated.showLogButton
         }
     }
 }

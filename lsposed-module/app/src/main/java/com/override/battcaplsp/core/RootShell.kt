@@ -86,10 +86,24 @@ object RootShell {
             return@withContext false
         }
         
-        // 2. 执行多个命令验证root权限
+        // 2. 执行快速验证
+        // 既然 Shell.isAppGrantedRoot() 已经返回 true，我们只需要做一个最简单的确认
+        // id -u 返回 0 即为 root
+        try {
+            val result = withTimeoutOrNull(2000) {
+                Shell.cmd("id -u").exec()
+            }
+            
+            if (result != null && result.isSuccess) {
+                val uid = result.out.firstOrNull()?.trim()?.toIntOrNull()
+                if (uid == 0) return@withContext true
+            }
+        } catch (e: Exception) {
+            // 忽略
+        }
+        
+        // 3. 兜底验证（仅当 id -u 失败时执行）
         val commands = listOf(
-            "id",
-            "whoami", 
             "ls /data/data/ | head -1"  // 需要root权限才能访问
         )
         
@@ -103,23 +117,9 @@ object RootShell {
                     continue
                 }
                 
-                when (cmd) {
-                    "id" -> {
-                        if (result.out.any { it.contains("uid=0") }) {
-                            return@withContext true
-                        }
-                    }
-                    "whoami" -> {
-                        if (result.out.any { it.trim() == "root" }) {
-                            return@withContext true
-                        }
-                    }
-                    else -> {
-                        // ls /data/data/ 命令成功执行说明有root权限
-                        if (result.out.isNotEmpty()) {
-                            return@withContext true
-                        }
-                    }
+                // ls /data/data/ 命令成功执行说明有root权限
+                if (result.out.isNotEmpty()) {
+                    return@withContext true
                 }
             } catch (e: Exception) {
                 // 继续尝试下一个命令

@@ -1,7 +1,10 @@
 package com.override.battcaplsp.ui
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -12,6 +15,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clip
+import android.widget.Toast
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Add
@@ -140,7 +145,7 @@ fun HookSettingsScreen(
 
         // 并行获取基础状态
         kotlinx.coroutines.coroutineScope {
-            val rootDeferred = async { RootShell.getRootStatus(forceRefresh = true) }
+            val rootDeferred = async { RootShell.getRootStatus(forceRefresh = force) }
             val battLoadedDeferred = async { battMgr.isLoaded() }
             val chgLoadedDeferred = async { chgMgr.isLoaded() }
             val battAvailableDeferred = async { battMgr.isAvailable() }
@@ -218,6 +223,7 @@ fun HookSettingsScreen(
     var hookSharedPrefs by remember { mutableStateOf(ui.hookSharedPrefs) }
     var hookJsonMethods by remember { mutableStateOf(ui.hookJsonMethods) }
     var launcherIconEnabled by remember { mutableStateOf(true) }
+    var showLogButton by remember { mutableStateOf(ui.showLogButton) }
     var msg by remember { mutableStateOf("") }
     // 日志查看相关状态
     var showLogDialog by remember { mutableStateOf(false) }
@@ -241,6 +247,7 @@ fun HookSettingsScreen(
         hookSharedPrefs = ui.hookSharedPrefs
         hookJsonMethods = ui.hookJsonMethods
         launcherIconEnabled = ui.launcherIconEnabled
+        showLogButton = ui.showLogButton
     }
 
     // Root 权限对话框
@@ -278,7 +285,7 @@ fun HookSettingsScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
                 ) {
-                    Text("应用更新", style = MaterialTheme.typography.titleSmall)
+                    Text("应用更新", style = MaterialTheme.typography.titleMedium)
                     Button(
                         onClick = {
                             isCheckingVersion = true
@@ -312,23 +319,46 @@ fun HookSettingsScreen(
                         }
                     }
                 }
-                Spacer(Modifier.height(8.dp))
-                // 查看日志按钮
-                OutlinedButton(
-                    onClick = {
-                        showLogDialog = true
-                        loadingLog = true
-                        logContent = null
-                        scope.launch {
-                            logContent = com.override.battcaplsp.core.LogCollector.getRecentLogs(maxLines = 400)
-                            loadingLog = false
+                if (showLogButton) {
+                    Spacer(Modifier.height(8.dp))
+                    // 查看日志按钮 (支持长按隐藏)
+                    @OptIn(ExperimentalFoundationApi::class)
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(50.dp)
+                            .clip(ButtonDefaults.outlinedShape)
+                            .border(BorderStroke(1.dp, MaterialTheme.colorScheme.outline), ButtonDefaults.outlinedShape)
+                            .combinedClickable(
+                                onClick = {
+                                    Toast.makeText(context, "长按按钮隐藏按钮", Toast.LENGTH_SHORT).show()
+                                    showLogDialog = true
+                                    loadingLog = true
+                                    logContent = null
+                                    scope.launch {
+                                        logContent = com.override.battcaplsp.core.LogCollector.getRecentLogs(maxLines = 400)
+                                        loadingLog = false
+                                    }
+                                },
+                                onLongClick = {
+                                    scope.launch {
+                                        repo.update { it.copy(showLogButton = false) }
+                                        Toast.makeText(context, "日志按钮已隐藏", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            ),
+                        color = Color.Transparent,
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxSize(),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.Warning, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                            Spacer(Modifier.width(8.dp))
+                            Text("查看日志", color = MaterialTheme.colorScheme.primary)
                         }
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(Icons.Default.Warning, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("查看日志")
+                    }
                 }
                 
                 Spacer(Modifier.height(8.dp))
@@ -556,7 +586,7 @@ fun HookSettingsScreen(
                 
                 // Magisk / 动态模块状态区块（原管理卡片内容合并）
                 Spacer(Modifier.height(8.dp))
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f))
                 Spacer(Modifier.height(8.dp))
                 Text("环境与动态模块", style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(4.dp))
