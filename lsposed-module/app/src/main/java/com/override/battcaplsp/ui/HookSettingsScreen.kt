@@ -373,6 +373,7 @@ fun HookSettingsScreen(
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
         ) {
             Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                Spacer(Modifier.height(4.dp))
                 Text("模块状态与管理", style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(4.dp))
                 
@@ -553,11 +554,9 @@ fun HookSettingsScreen(
                     }
                 }
                 
-                Spacer(Modifier.height(8.dp))
-                
                 // Magisk / 动态模块状态区块（原管理卡片内容合并）
                 Spacer(Modifier.height(8.dp))
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 Spacer(Modifier.height(8.dp))
                 Text("环境与动态模块", style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(4.dp))
@@ -576,7 +575,7 @@ fun HookSettingsScreen(
                         }
                     }
                 }
-                Spacer(Modifier.height(4.dp))
+                Spacer(Modifier.height(1.dp))
                 // 动态模块
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -592,7 +591,7 @@ fun HookSettingsScreen(
                         }
                     }
                 }
-                Spacer(Modifier.height(4.dp))
+                Spacer(Modifier.height(1.dp))
                 // 可用内核模块数量（点击打开下载）
                 Row(
                     modifier = Modifier
