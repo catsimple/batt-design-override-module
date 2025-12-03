@@ -1,4 +1,4 @@
-package com.override.battcaplsp.core
+package com.debug.battcaplsp.core
 
 import android.content.Context
 import kotlinx.coroutines.Dispatchers
@@ -6,6 +6,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
+import com.override.battcaplsp.core.RootShell
 
 /** 临时内核模块下载 & 加载工具 (仅 Debug 使用) */
 class TempModuleTester(private val context: Context) {

@@ -1,4 +1,4 @@
-package com.override.battcaplsp.ui
+package com.debug.battcaplsp.ui
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -8,9 +8,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.unit.dp
 import com.override.battcaplsp.core.ModuleManager
-import com.override.battcaplsp.core.OpEvents
+import com.debug.battcaplsp.core.OpEvents
 import com.override.battcaplsp.core.RootShell
 import kotlinx.coroutines.launch
 
@@ -93,7 +94,8 @@ fun StatusScreen(moduleManager: ModuleManager) {
             }
         }
         Spacer(Modifier.height(12.dp))
-        Row {
+
+        Row(verticalAlignment = Alignment.CenterVertically) {
             Button(enabled = !loading, onClick = {
                 scope.launch {
                     loading = true

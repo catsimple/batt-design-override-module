@@ -1,4 +1,4 @@
-package com.override.battcaplsp.core
+package com.debug.battcaplsp.core
 
 import androidx.compose.runtime.mutableStateListOf
 import java.text.SimpleDateFormat

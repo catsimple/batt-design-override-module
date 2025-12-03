@@ -25,7 +25,7 @@ import com.override.battcaplsp.core.RootShell
 import com.override.battcaplsp.core.ModuleManager
 import com.override.battcaplsp.core.ChgModuleManager
 import kotlinx.coroutines.launch
-import com.override.battcaplsp.core.OpEvents
+import com.debug.battcaplsp.core.OpEvents
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
@@ -81,6 +81,8 @@ fun HookSettingsScreen(
     var rootStatus by remember { mutableStateOf<RootShell.RootStatus?>(null) }
     var battModuleLoaded by remember { mutableStateOf<Boolean?>(null) }
     var chgModuleLoaded by remember { mutableStateOf<Boolean?>(null) }
+    var battModuleAvailable by remember { mutableStateOf<Boolean?>(null) }
+    var chgModuleAvailable by remember { mutableStateOf<Boolean?>(null) }
     var kernelVersion by remember { mutableStateOf("") }
     var kernelVersionDetail by remember { mutableStateOf("") }
     var battModuleVersion by remember { mutableStateOf("") }
@@ -97,6 +99,7 @@ fun HookSettingsScreen(
     var moduleDownloadProgress by remember { mutableStateOf(0) }
     var moduleManagementMessage by remember { mutableStateOf("") }
     var showModuleDownloadDialog by remember { mutableStateOf(false) }
+    var showCalibrationDialog by remember { mutableStateOf(false) }
     var isInstallingModule by remember { mutableStateOf(false) }
     var initialLoading by remember { mutableStateOf(true) }
     
@@ -140,6 +143,8 @@ fun HookSettingsScreen(
             val rootDeferred = async { RootShell.getRootStatus(forceRefresh = true) }
             val battLoadedDeferred = async { battMgr.isLoaded() }
             val chgLoadedDeferred = async { chgMgr.isLoaded() }
+            val battAvailableDeferred = async { battMgr.isAvailable() }
+            val chgAvailableDeferred = async { chgMgr.isAvailable() }
             val magiskAvailDeferred = async { magiskManager.isMagiskAvailable() }
             val magiskInstalledDeferred = async { magiskManager.isModuleInstalled() }
             val kernelVersionDeferred = async { runCatching { battMgr.getKernelVersion() }.getOrNull() }
@@ -147,6 +152,8 @@ fun HookSettingsScreen(
             val newRoot = rootDeferred.await()
             val newBattLoaded = battLoadedDeferred.await()
             val newChgLoaded = chgLoadedDeferred.await()
+            val newBattAvailable = battAvailableDeferred.await()
+            val newChgAvailable = chgAvailableDeferred.await()
             val newMagiskAvail = magiskAvailDeferred.await()
             val newMagiskInstalled = magiskInstalledDeferred.await()
             val newKernelVersion = kernelVersionDeferred.await()
@@ -183,6 +190,8 @@ fun HookSettingsScreen(
             rootStatus = newRoot
             battModuleLoaded = newBattLoaded
             chgModuleLoaded = newChgLoaded
+            battModuleAvailable = newBattAvailable
+            chgModuleAvailable = newChgAvailable
             magiskAvailable = newMagiskAvail
             magiskModuleInstalled = newMagiskInstalled
             detectedKernelVersion = newKernelVersion
@@ -382,123 +391,125 @@ fun HookSettingsScreen(
                 }
                 
                 // 统一行间距：与内核版本 / 电池模块保持一致 (1.dp)
-                Spacer(Modifier.height(1.dp))
+                if (battModuleAvailable == true || battModuleLoaded == true) {
+                    Spacer(Modifier.height(1.dp))
 
-                // 电池模块行（仅图标与 vermagic，去除 root 权限误嵌内容）
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
-                ) {
-                    Text("电池模块:")
+                    // 电池模块行（仅图标与 vermagic，去除 root 权限误嵌内容）
                     Row(
-                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
                     ) {
-                        // vermagic 显示（仅显示内核版本号部分，如 5.15.192）
-                        run {
-                            val source = when {
-                                battModuleVermagic.isNotEmpty() && battModuleVermagic != "未知" && battModuleVermagic != "获取失败" -> {
-                                    android.util.Log.d("HookSettings", "Using battModuleVermagic: $battModuleVermagic")
-                                    extractKernelVersionFromVermagic(battModuleVermagic)
-                                }
-                                else -> {
-                                    android.util.Log.d("HookSettings", "No batt vermagic source available")
-                                    ""
-                                }
-                            }
-                            val displayVermagic = source
-                            if (displayVermagic.isNotBlank()) {
-                                Text(
-                                    displayVermagic,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                        // 状态图标
+                        Text("电池模块:")
                         Row(
                             verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            when (battModuleLoaded) {
-                                null -> CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
-                                true -> Icon(
-                                    Icons.Default.CheckCircle,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.55f),
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                false -> Icon(
-                                    Icons.Default.Warning,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.error.copy(alpha = 0.70f),
-                                    modifier = Modifier.size(16.dp)
-                                )
+                            // vermagic 显示（仅显示内核版本号部分，如 5.15.192）
+                            run {
+                                val source = when {
+                                    battModuleVermagic.isNotEmpty() && battModuleVermagic != "未知" && battModuleVermagic != "获取失败" -> {
+                                        android.util.Log.d("HookSettings", "Using battModuleVermagic: $battModuleVermagic")
+                                        extractKernelVersionFromVermagic(battModuleVermagic)
+                                    }
+                                    else -> {
+                                        android.util.Log.d("HookSettings", "No batt vermagic source available")
+                                        ""
+                                    }
+                                }
+                                val displayVermagic = source
+                                if (displayVermagic.isNotBlank()) {
+                                    Text(
+                                        displayVermagic,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                            // 状态图标
+                            Row(
+                                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                when {
+                                    battModuleLoaded == true -> Icon(
+                                        Icons.Default.CheckCircle,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.55f),
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    battModuleAvailable == true -> Icon(
+                                        Icons.Default.Warning,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.error.copy(alpha = 0.70f),
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    else -> CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                                }
                             }
                         }
                     }
                 }
                 
-                Spacer(Modifier.height(1.dp))
-                
-                // 充电模块
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
-                ) {
-                    Text("充电模块:")
+                if (chgModuleAvailable == true || chgModuleLoaded == true) {
+                    Spacer(Modifier.height(1.dp))
                     
+                    // 充电模块
                     Row(
-                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
                     ) {
-                        // vermagic 显示（仅显示内核版本号部分，如5.15.192）
-                        run {
-                            val source = when {
-                                chgModuleVermagic.isNotEmpty() && chgModuleVermagic != "未知" && chgModuleVermagic != "获取失败" -> {
-                                    android.util.Log.d("HookSettings", "Using chgModuleVermagic: $chgModuleVermagic")
-                                    extractKernelVersionFromVermagic(chgModuleVermagic)
-                                }
-                                else -> {
-                                    android.util.Log.d("HookSettings", "No chg vermagic source available")
-                                    ""
-                                }
-                            }
-                            val displayVermagic = source
-                            if (displayVermagic.isNotBlank()) {
-                                Text(
-                                    displayVermagic,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
+                        Text("充电模块:")
                         
-                        // 已移除充电模块版本号显示
-                        
-                        // 状态图标和文字
                         Row(
                             verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            when (chgModuleLoaded) {
-                                null -> {
-                                    CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                            // vermagic 显示（仅显示内核版本号部分，如5.15.192）
+                            run {
+                                val source = when {
+                                    chgModuleVermagic.isNotEmpty() && chgModuleVermagic != "未知" && chgModuleVermagic != "获取失败" -> {
+                                        android.util.Log.d("HookSettings", "Using chgModuleVermagic: $chgModuleVermagic")
+                                        extractKernelVersionFromVermagic(chgModuleVermagic)
+                                    }
+                                    else -> {
+                                        android.util.Log.d("HookSettings", "No chg vermagic source available")
+                                        ""
+                                    }
                                 }
-                                true -> Icon(
-                                    Icons.Default.CheckCircle,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.55f),
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                false -> Icon(
-                                    Icons.Default.Warning,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.error.copy(alpha = 0.70f),
-                                    modifier = Modifier.size(16.dp)
-                                )
+                                val displayVermagic = source
+                                if (displayVermagic.isNotBlank()) {
+                                    Text(
+                                        displayVermagic,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                            
+                            // 已移除充电模块版本号显示
+                            
+                            // 状态图标和文字
+                            Row(
+                                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                when {
+                                    chgModuleLoaded == true -> Icon(
+                                        Icons.Default.CheckCircle,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.55f),
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    chgModuleAvailable == true -> Icon(
+                                        Icons.Default.Warning,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.error.copy(alpha = 0.70f),
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    else -> CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                                }
                             }
                         }
                     }
@@ -897,6 +908,20 @@ fun HookSettingsScreen(
                      color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
+
+        // 电池容量矫正卡片
+        Spacer(Modifier.height(12.dp))
+        Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp)) {
+                Text("电池容量矫正", style = MaterialTheme.typography.titleSmall)
+                Spacer(Modifier.height(8.dp))
+                Text("清空电池日志，防止系统误判容量。", style = MaterialTheme.typography.bodySmall)
+                Spacer(Modifier.height(8.dp))
+                Button(onClick = { showCalibrationDialog = true }) {
+                    Text("立即矫正")
+                }
+            }
+        }
     }
     
     // 抽取：隐式测试 + 安装到 Magisk (复用下载与本地已有两处逻辑)
@@ -1278,6 +1303,52 @@ fun HookSettingsScreen(
                     }) { Text("刷新") }
                     TextButton(onClick = { showLogDialog = false }) { Text("关闭") }
                 }
+            }
+        )
+    }
+
+    // 电池容量矫正对话框
+    if (showCalibrationDialog) {
+        AlertDialog(
+            onDismissRequest = { showCalibrationDialog = false },
+            icon = { Icon(Icons.Default.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+            title = { Text("推荐充满校正") },
+            text = {
+                Column {
+                    Text("系统依据电池统计日志来估算剩余容量。长期使用后更换电池日志可能产生偏差，导致电量显示不准。")
+                    Spacer(Modifier.height(8.dp))
+                    Text("清空日志可消除累积误差，强制系统重新校准。")
+                    Spacer(Modifier.height(12.dp))
+                    Text("⚠️ 副作用说明：", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.error)
+                    Text("• 历史耗电统计将被清空\n• 系统需重新学习电池特性，短期内充电速度可能变慢或电量显示波动", style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.height(12.dp))
+                    Text("建议：在关机充满电后开机执行，完成后重启设备。", style = MaterialTheme.typography.labelMedium)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showCalibrationDialog = false
+                    scope.launch {
+                        try {
+                            // 1. 重置电池模拟状态 (防止之前可能有 cmd battery set ... 的残留)
+                            RootShell.exec("cmd battery reset")
+                            // 2. 重置电池统计服务
+                            RootShell.exec("dumpsys batterystats --reset")
+                            // 3. 删除物理统计文件 (覆盖更全面)
+                            RootShell.exec("rm -f /data/system/batterystats.bin")
+                            RootShell.exec("rm -f /data/system/batterystats-checkin.bin")
+                            RootShell.exec("rm -f /data/system/batterystats-daily.xml")
+                            RootShell.exec("rm -f /data/system/batterystats-history.bin")
+                            
+                            OpEvents.success("电池日志已深度清空，建议重启设备")
+                        } catch (t: Throwable) {
+                            OpEvents.error("矫正失败: ${t.message}")
+                        }
+                    }
+                }) { Text("确认矫正") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCalibrationDialog = false }) { Text("取消") }
             }
         )
     }

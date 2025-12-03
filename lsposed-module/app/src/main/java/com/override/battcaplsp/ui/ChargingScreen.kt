@@ -11,7 +11,7 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.Alignment
 import com.override.battcaplsp.core.*
-import com.override.battcaplsp.core.OpEvents
+import com.debug.battcaplsp.core.OpEvents
 import com.override.battcaplsp.core.truncateMiddle
 import com.override.battcaplsp.ui.StatusBadge
 import kotlinx.coroutines.launch

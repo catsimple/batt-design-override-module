@@ -35,6 +35,8 @@ import android.widget.Toast
 import com.override.battcaplsp.core.RootShell
 import com.override.battcaplsp.core.ModuleManager
 import com.override.battcaplsp.ui.theme.AppTheme
+import com.debug.battcaplsp.ui.DebugPanel
+import com.debug.battcaplsp.ui.StatusScreen
 import com.override.battcaplsp.core.ParamRepository
 import com.override.battcaplsp.core.truncateMiddle
 import com.override.battcaplsp.ui.StatusBadge
@@ -42,7 +44,7 @@ import com.override.battcaplsp.ui.stripStatusPrefix
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.async
-import com.override.battcaplsp.core.OpEvents
+import com.debug.battcaplsp.core.OpEvents
 import com.override.battcaplsp.BuildConfig
 
 class MainActivity: ComponentActivity() {

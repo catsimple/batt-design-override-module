@@ -1,4 +1,4 @@
-package com.override.battcaplsp.ui
+package com.debug.battcaplsp.ui
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -19,7 +19,8 @@ import com.override.battcaplsp.core.RootShell
 import com.override.battcaplsp.core.ModuleManager
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import com.override.battcaplsp.core.TempModuleTester
+import com.debug.battcaplsp.core.TempModuleTester
+import com.override.battcaplsp.ui.LogViewer
 
 /**
  * 内部调试面板（仅 Debug 构建可用）
