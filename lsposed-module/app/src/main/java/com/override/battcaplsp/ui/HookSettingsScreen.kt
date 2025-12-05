@@ -1326,6 +1326,7 @@ fun HookSettingsScreen(
     // 日志查看对话框 (增强: 使用终端风格 LogViewer)
     if (showLogDialog) {
         AlertDialog(
+            modifier = Modifier.fillMaxWidth(0.95f),
             onDismissRequest = { showLogDialog = false },
             title = { Text("最近日志 (末尾400行)") },
             text = {
@@ -1376,7 +1377,7 @@ fun HookSettingsScreen(
                         title = "日志输出",
                         logText = (logContent ?: if (loadingLog) "" else "(无日志)"),
                         onClear = { logContent = "" },
-                        maxHeight = 280,
+                        maxHeight = 500,
                         autoScroll = true,
                         modifier = Modifier.fillMaxWidth()
                     )

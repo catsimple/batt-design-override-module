@@ -61,8 +61,8 @@ class SafeModuleInstaller(private val context: Context) {
                 delay(1000) // 等待卸载完成
             }
             
-            // 2. 清理内核日志
-            clearKernelLog()
+            // 2. 获取当前日志标记（替代清理日志）
+            val logMarker = getKernelLogMarker()
             
             // 3. 构建 insmod 命令
             val insmodCmd = buildInsmodCommand(koFilePath, initialParams)
@@ -92,19 +92,29 @@ class SafeModuleInstaller(private val context: Context) {
                 )
             }
             
-            // 7. 检查模块状态
-            val dmesgOutput = getRecentKernelLog() // 单次获取
+            // 7. 检查模块状态 (只检查新产生的日志)
+            val dmesgOutput = getKernelLogSince(logMarker)
             
             // 8. 检查是否有与当前模块直接关联的错误信息
             // 只在同一行同时包含 模块名 + 关键字(error/failed/panic) 时判定失败
             run {
                 val moduleNameLower = moduleName.lowercase()
                 val errorKeywords = listOf("error", "failed", "panic")
+                val ignoredKeywords = listOf("module verification failed", "tainting kernel") // 忽略常见非致命错误
+
                 val hitLines = dmesgOutput.lineSequence().filter { line ->
                     val lower = line.lowercase()
                     if (!lower.contains(moduleNameLower)) return@filter false
-                    errorKeywords.any { kw -> lower.contains(kw) }
+                    
+                    // 必须包含错误关键字
+                    val hasError = errorKeywords.any { kw -> lower.contains(kw) }
+                    if (!hasError) return@filter false
+                    
+                    // 必须不包含忽略关键字
+                    val isIgnored = ignoredKeywords.any { kw -> lower.contains(kw) }
+                    !isIgnored
                 }.toList()
+
                 if (hitLines.isNotEmpty()) {
                     return@withContext TestResult(
                         passed = false,
@@ -191,15 +201,45 @@ class SafeModuleInstaller(private val context: Context) {
     }
     
     /**
-     * 清理内核日志
+     * 获取当前内核日志的最后一行作为标记
      */
-    private suspend fun clearKernelLog() {
-        withContext(Dispatchers.IO) {
-            try {
-                RootShell.exec("dmesg -c > /dev/null 2>&1 || true")
-            } catch (e: Exception) {
-                // 忽略清理失败
+    private suspend fun getKernelLogMarker(): String = withContext(Dispatchers.IO) {
+        try {
+            val result = RootShell.exec("dmesg | tail -n 1")
+            if (result.code == 0) result.out.trim() else ""
+        } catch (e: Exception) { "" }
+    }
+
+    /**
+     * 获取自标记以来的新内核日志
+     */
+    private suspend fun getKernelLogSince(marker: String): String = withContext(Dispatchers.IO) {
+        try {
+            // 读取更多行以确保覆盖
+            val result = RootShell.exec("dmesg | tail -n 100")
+            if (result.code == 0) {
+                val fullLog = result.out
+                if (marker.isEmpty()) return@withContext fullLog
+                
+                val lines = fullLog.lines()
+                // 寻找标记行的最后一次出现位置
+                val markerIndex = lines.indexOfLast { it.trim() == marker }
+                
+                if (markerIndex != -1 && markerIndex < lines.size - 1) {
+                    // 返回标记之后的内容
+                    lines.subList(markerIndex + 1, lines.size).joinToString("\n")
+                } else if (markerIndex == -1) {
+                    // 没找到标记，可能日志滚动了，返回全部
+                    fullLog
+                } else {
+                    // 标记是最后一行，没有新日志
+                    ""
+                }
+            } else {
+                "无法获取内核日志"
             }
+        } catch (e: Exception) {
+            "获取内核日志异常: ${e.message}"
         }
     }
     

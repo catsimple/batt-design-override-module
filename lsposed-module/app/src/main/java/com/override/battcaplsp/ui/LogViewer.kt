@@ -28,7 +28,7 @@ fun LogViewer(
     logText: String,
     modifier: Modifier = Modifier,
     onClear: (() -> Unit)? = null,
-    maxHeight: Int = 280,
+    maxHeight: Int = 500,
     autoScroll: Boolean = true
 ) {
     val vScroll = rememberScrollState()
