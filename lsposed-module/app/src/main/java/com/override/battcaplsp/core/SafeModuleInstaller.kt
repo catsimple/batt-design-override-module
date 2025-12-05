@@ -37,7 +37,8 @@ class SafeModuleInstaller(private val context: Context) {
     data class TestResult(
         val passed: Boolean,
         val message: String,
-        val dmesgTail: String? = null
+        val dmesgTail: String? = null,
+        val executedCmd: String? = null
     )
     
     // safeInstallModule 逻辑已在设置页面改为隐式 quickTest + installKernelModule，去除公开安装函数以降低 API 面。
@@ -52,7 +53,7 @@ class SafeModuleInstaller(private val context: Context) {
     ): TestResult = withContext(Dispatchers.IO) {
         
     logD("SafeModuleInstaller", "开始 insmod 测试")
-        
+        var executedCmd: String? = null
         try {
             // 1. 检查模块是否已经加载
             if (isModuleLoaded(moduleName)) {
@@ -66,6 +67,7 @@ class SafeModuleInstaller(private val context: Context) {
             
             // 3. 构建 insmod 命令
             val insmodCmd = buildInsmodCommand(koFilePath, initialParams)
+            executedCmd = insmodCmd
             logD("SafeModuleInstaller", "执行命令: $insmodCmd")
             
             // 4. 执行 insmod
@@ -76,7 +78,8 @@ class SafeModuleInstaller(private val context: Context) {
                 return@withContext TestResult(
                     passed = false,
                     message = "insmod 失败: ${insmodResult.err}",
-                    dmesgTail = getRecentKernelLog()
+                    dmesgTail = getRecentKernelLog(),
+                    executedCmd = executedCmd
                 )
             }
             
@@ -88,7 +91,8 @@ class SafeModuleInstaller(private val context: Context) {
                 return@withContext TestResult(
                     passed = false,
                     message = "模块加载后未在系统中找到",
-                    dmesgTail = getRecentKernelLog()
+                    dmesgTail = getRecentKernelLog(),
+                    executedCmd = executedCmd
                 )
             }
             
@@ -119,17 +123,18 @@ class SafeModuleInstaller(private val context: Context) {
                     return@withContext TestResult(
                         passed = false,
                         message = "内核日志中发现与模块相关错误信息",
-                        dmesgTail = (hitLines + "---- FULL TAIL ----" + dmesgOutput).joinToString("\n")
+                        dmesgTail = (hitLines + "---- FULL TAIL ----" + dmesgOutput).joinToString("\n"),
+                        executedCmd = executedCmd
                     )
                 }
             }
             
             logD("SafeModuleInstaller", "模块测试通过")
-            TestResult(passed = true, message = "模块测试通过", dmesgTail = dmesgOutput)
+            TestResult(passed = true, message = "模块测试通过", dmesgTail = dmesgOutput, executedCmd = executedCmd)
             
         } catch (e: Exception) {
             logE("SafeModuleInstaller", "测试过程异常", e)
-            TestResult(passed = false, message = "测试异常: ${e.message}", dmesgTail = getRecentKernelLog())
+            TestResult(passed = false, message = "测试异常: ${e.message}", dmesgTail = getRecentKernelLog(), executedCmd = executedCmd)
         }
     }
     

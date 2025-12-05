@@ -34,6 +34,10 @@ import com.debug.battcaplsp.core.OpEvents
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
+import android.content.ContentValues
+import android.provider.MediaStore
+import java.text.SimpleDateFormat
+import java.util.Locale
 import java.io.File
 
 // 提取vermagic中的内核版本号（如从"5.15.192-g12345678 SMP preempt mod_unload aarch64"提取"5.15.192"）
@@ -122,6 +126,7 @@ fun HookSettingsScreen(
     var downloadingModule by remember { mutableStateOf<String?>(null) }
     var moduleDownloadProgress by remember { mutableStateOf(0) }
     var moduleManagementMessage by remember { mutableStateOf("") }
+    var lastTestFailureDetail by remember { mutableStateOf<String?>(null) }
     var showModuleDownloadDialog by remember { mutableStateOf(false) }
     var showCalibrationDialog by remember { mutableStateOf(false) }
     var isInstallingModule by remember { mutableStateOf(false) }
@@ -757,6 +762,14 @@ fun HookSettingsScreen(
                         } else StatusType.INFO to moduleManagementMessage
                     }
                     StatusLine(type = stype, text = body)
+                    if (stype == StatusType.ERROR && !lastTestFailureDetail.isNullOrBlank()) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = lastTestFailureDetail!!,
+                            style = MaterialTheme.typography.bodySmall.copy(fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace),
+                            color = MaterialTheme.colorScheme.error.copy(alpha = 0.90f)
+                        )
+                    }
                 }
             }
         }
@@ -1025,11 +1038,20 @@ fun HookSettingsScreen(
     setMsg("INFO:正在测试 $moduleName...")
         val test = safeInstaller.quickTestModule(moduleName, localPath, emptyMap())
         if (!test.passed) {
+            val detail = buildString {
+                append(test.message)
+                test.executedCmd?.let {
+                    append("\n命令: ")
+                    append(it)
+                }
+            }
+            lastTestFailureDetail = detail
             setMsg("ERROR:测试失败: ${test.message}")
             try { RootShell.exec("rmmod ${moduleName}") } catch (_: Throwable) {}
             isInstallingModule = false
             return
         }
+        lastTestFailureDetail = null
     setMsg("INFO:测试通过，正在安装...")
         // 对所有模块都启用 autoLoad，尝试立即生效
         val autoLoad = true
@@ -1326,7 +1348,7 @@ fun HookSettingsScreen(
     // 日志查看对话框 (增强: 使用终端风格 LogViewer)
     if (showLogDialog) {
         AlertDialog(
-            modifier = Modifier.fillMaxWidth(0.95f),
+            modifier = Modifier.fillMaxWidth(0.98f),
             onDismissRequest = { showLogDialog = false },
             title = { Text("最近日志 (末尾400行)") },
             text = {
@@ -1386,6 +1408,17 @@ fun HookSettingsScreen(
             confirmButton = {
                 Row {
                     TextButton(onClick = {
+                        scope.launch {
+                            val content = logContent ?: ""
+                            if (content.isBlank()) {
+                                OpEvents.warn("无可保存的日志")
+                                return@launch
+                            }
+                            val ok = saveLogToDownloads(context, content)
+                            if (ok) OpEvents.success("已保存到 Download 目录") else OpEvents.error("保存失败")
+                        }
+                    }) { Text("保存") }
+                    TextButton(onClick = {
                         loadingLog = true
                         scope.launch {
                             logContent = com.override.battcaplsp.core.LogCollector.getRecentLogs(maxLines = 400)
@@ -1397,6 +1430,7 @@ fun HookSettingsScreen(
             }
         )
     }
+
 
     // 电池容量矫正对话框
     if (showCalibrationDialog) {
@@ -1442,5 +1476,26 @@ fun HookSettingsScreen(
                 TextButton(onClick = { showCalibrationDialog = false }) { Text("取消") }
             }
         )
+    }
+}
+
+// 将日志内容保存到 Downloads 目录（使用 MediaStore，支持新存储模型）
+private suspend fun saveLogToDownloads(context: android.content.Context, content: String): Boolean = withContext(kotlinx.coroutines.Dispatchers.IO) {
+    try {
+        val resolver = context.contentResolver
+        val now = System.currentTimeMillis()
+        val fmt = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US)
+        val fileName = "battcaplsp-log-${fmt.format(java.util.Date(now))}.txt"
+        val values = ContentValues().apply {
+            put(MediaStore.Downloads.DISPLAY_NAME, fileName)
+            put(MediaStore.Downloads.MIME_TYPE, "text/plain")
+        }
+        val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: return@withContext false
+        resolver.openOutputStream(uri)?.use { out ->
+            out.write(content.toByteArray())
+        } ?: return@withContext false
+        true
+    } catch (_: Throwable) {
+        false
     }
 }

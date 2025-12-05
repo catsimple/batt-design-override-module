@@ -46,7 +46,7 @@ fun LogViewer(
         modifier = modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
     ) {
-        Column(Modifier.padding(8.dp)) {
+        Column(Modifier.padding(6.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -68,7 +68,7 @@ fun LogViewer(
                     .fillMaxWidth()
                     .heightIn(min = 120.dp, max = maxHeight.dp)
                     .background(Color(0xFF111111), shape = MaterialTheme.shapes.small)
-                    .padding(8.dp)
+                    .padding(6.dp)
             ) {
                 if (logText.isBlank()) {
                     Text(
