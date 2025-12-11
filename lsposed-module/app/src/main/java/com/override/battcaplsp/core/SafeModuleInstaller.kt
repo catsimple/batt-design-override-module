@@ -104,7 +104,14 @@ class SafeModuleInstaller(private val context: Context) {
             run {
                 val moduleNameLower = moduleName.lowercase()
                 val errorKeywords = listOf("error", "failed", "panic")
-                val ignoredKeywords = listOf("module verification failed", "tainting kernel") // 忽略常见非致命错误
+                // 忽略常见非致命错误和警告
+                val ignoredKeywords = listOf(
+                    "module verification failed", 
+                    "tainting kernel",
+                    "hook failed",          
+                    "pd override disabled",
+                    "symbol not found" 
+                )
 
                 val hitLines = dmesgOutput.lineSequence().filter { line ->
                     val lower = line.lowercase()
